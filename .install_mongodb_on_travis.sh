@@ -20,15 +20,15 @@ elif [ "$MONGODB" = "3.0" ]; then
 elif [ "$MONGODB" = "3.2" ]; then
     echo "deb http://repo.mongodb.org/apt/ubuntu trusty/mongodb-org/3.2 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb.list
     sudo apt-get update
-    sudo apt-get install mongodb-org-server=3.2.19
+    sudo apt-get install mongodb-org-server=3.2.19 -y --force-yes
 elif [ "$MONGODB" = "3.4" ]; then
     echo "deb http://repo.mongodb.org/apt/ubuntu trusty/mongodb-org/3.4 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb.list
     sudo apt-get update
-    sudo apt-get install mongodb-org-server=3.4.11          
+    sudo apt-get install mongodb-org-server=3.4.11 -y --force-yes         
 elif [ "$MONGODB" = "3.6" ]; then
     echo "deb http://repo.mongodb.org/apt/ubuntu trusty/mongodb-org/3.6 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb.list
     sudo apt-get update
-    sudo apt-get install mongodb-org-server=3.6.4 
+    sudo apt-get install mongodb-org-server=3.6.4 -y --force-yes     
     # service should be started automatically
 else
     echo "Invalid MongoDB version, expected 2.4, 2.6, 3.0, 3.2, 3.4, or 3.6."

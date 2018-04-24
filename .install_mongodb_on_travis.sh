@@ -31,7 +31,7 @@ elif [ "$MONGODB" = "3.6" ]; then
     sudo apt-get install mongodb-org-server=3.6.4 
     # service should be started automatically
 else
-    echo "Invalid MongoDB version, expected 2.4, 2.6, or 3.0."
+    echo "Invalid MongoDB version, expected 2.4, 2.6, 3.0, 3.2, 3.4, or 3.6."
     exit 1
 fi;
 

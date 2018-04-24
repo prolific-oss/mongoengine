@@ -1263,8 +1263,9 @@ class QuerySetTest(unittest.TestCase):
         with db_ops_tracker() as q:
             BlogPost.objects.filter(title='whatever').first()
             self.assertEqual(len(q.get_ops()), 1)
+            print(q.get_ops()[0])
             self.assertEqual(
-                q.get_ops()[0]['query']['$orderby'],
+                q.get_ops()[0]['command']['sort'],
                 {'published_date': -1}
             )
 
@@ -1272,7 +1273,7 @@ class QuerySetTest(unittest.TestCase):
         with db_ops_tracker() as q:
             BlogPost.objects.filter(title='whatever').order_by().first()
             self.assertEqual(len(q.get_ops()), 1)
-            self.assertFalse('$orderby' in q.get_ops()[0]['query'])
+            self.assertFalse('sort' in q.get_ops()[0]['command'])
 
         # calling an explicit order_by should use a specified sort
         with db_ops_tracker() as q:
@@ -1280,7 +1281,7 @@ class QuerySetTest(unittest.TestCase):
                 'published_date').first()
             self.assertEqual(len(q.get_ops()), 1)
             self.assertEqual(
-                q.get_ops()[0]['query']['$orderby'],
+                q.get_ops()[0]['command']['sort'],
                 {'published_date': 1}
             )
 
@@ -1290,7 +1291,7 @@ class QuerySetTest(unittest.TestCase):
                 title='whatever').order_by('published_date')
             qs.order_by().first()
             self.assertEqual(len(q.get_ops()), 1)
-            self.assertFalse('$orderby' in q.get_ops()[0]['query'])
+            self.assertFalse('sort' in q.get_ops()[0]['command'])
 
     def test_no_ordering_for_get(self):
         """ Ensure that Doc.objects.get doesn't use any ordering.
@@ -1309,13 +1310,13 @@ class QuerySetTest(unittest.TestCase):
         with db_ops_tracker() as q:
             BlogPost.objects.get(title='whatever')
             self.assertEqual(len(q.get_ops()), 1)
-            self.assertFalse('$orderby' in q.get_ops()[0]['query'])
+            self.assertFalse('sort' in q.get_ops()[0]['command'])
 
         # Ordering should be ignored for .get even if we set it explicitly
         with db_ops_tracker() as q:
             BlogPost.objects.order_by('-title').get(title='whatever')
             self.assertEqual(len(q.get_ops()), 1)
-            self.assertFalse('$orderby' in q.get_ops()[0]['query'])
+            self.assertFalse('sort' in q.get_ops()[0]['command'])
 
     def test_find_embedded(self):
         """Ensure that an embedded document is properly returned from
@@ -2396,8 +2397,8 @@ class QuerySetTest(unittest.TestCase):
             ops = q.get_ops()
             self.assertEqual(len(ops), 1)
             op = ops[0]
-            self.assertEqual(op['query']['$query'], {'age': {'$gte': 18}})
-            self.assertEqual(op['query']['$comment'], 'looking for an adult')
+            self.assertEqual(op['command']['$query'], {'age': {'$gte': 18}})
+            self.assertEqual(op['command']['$comment'], 'looking for an adult')
 
     def test_map_reduce(self):
         """Ensure map/reduce is both mapping and reducing.
@@ -5005,7 +5006,7 @@ class QuerySetTest(unittest.TestCase):
             op = q.db.system.profile.find({"ns":
                                            {"$ne": "%s.system.indexes" % q.db.name}})[0]
 
-            self.assertFalse('$orderby' in op['query'],
+            self.assertFalse('sort' in op['command'],
                              'BaseQuerySet cannot use orderby in if stmt')
 
         with query_counter() as p:
@@ -5016,7 +5017,7 @@ class QuerySetTest(unittest.TestCase):
             op = p.db.system.profile.find({"ns":
                                            {"$ne": "%s.system.indexes" % q.db.name}})[0]
 
-            self.assertTrue('$orderby' in op['query'],
+            self.assertTrue('sort' in op['command'],
                             'BaseQuerySet cannot remove orderby in for loop')
 
     def test_bool_with_ordering_from_meta_dict(self):
@@ -5041,7 +5042,7 @@ class QuerySetTest(unittest.TestCase):
             op = q.db.system.profile.find({"ns":
                                            {"$ne": "%s.system.indexes" % q.db.name}})[0]
 
-            self.assertFalse('$orderby' in op['query'],
+            self.assertFalse('sort' in op['command'],
                              'BaseQuerySet must remove orderby from meta in boolen test')
 
             self.assertEqual(Person.objects.first().name, 'A')

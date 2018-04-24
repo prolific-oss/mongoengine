@@ -215,7 +215,8 @@ class IndexesTest(unittest.TestCase):
                 'indexes': [
                     'rank.title',
                 ],
-                'allow_inheritance': False
+                'allow_inheritance': False,
+                'auto_create_index': True
             }
 
         self.assertEqual([{'fields': [('rank.title', 1)]}],
@@ -341,6 +342,7 @@ class IndexesTest(unittest.TestCase):
                 'indexes': [
                     {'fields': ['-date'], 'unique': True, 'sparse': True},
                 ],
+                'auto_create_index': True
             }
 
         self.assertEqual([{'fields': [('addDate', -1)], 'unique': True,
@@ -431,6 +433,7 @@ class IndexesTest(unittest.TestCase):
                 'indexes': [
                     '-date.year'
                 ],
+                'auto_create_index': True,
             }
 
         BlogPost.drop_collection()
@@ -451,7 +454,8 @@ class IndexesTest(unittest.TestCase):
             meta = {
                 'indexes': [
                     'tags.name'
-                ]
+                ],
+                'auto_create_index': True
             }
 
         BlogPost.drop_collection()
@@ -487,7 +491,8 @@ class IndexesTest(unittest.TestCase):
 
             meta = {
                 'indexes': ['a'],
-                'allow_inheritance': False
+                'allow_inheritance': False,
+                'auto_create_index': True
             }
 
         Test.drop_collection()
@@ -590,6 +595,7 @@ class IndexesTest(unittest.TestCase):
         """Ensure that uniqueness constraints are applied to fields.
         """
         class BlogPost(Document):
+            meta = {'auto_create_index': True}
             title = StringField()
             slug = StringField(unique=True)
 
@@ -609,9 +615,11 @@ class IndexesTest(unittest.TestCase):
         """Ensure that unique_with constraints are applied to fields.
         """
         class Date(EmbeddedDocument):
+            meta = {'auto_create_index': True}
             year = IntField(db_field='yr')
 
         class BlogPost(Document):
+            meta = {'auto_create_index': True}
             title = StringField()
             date = EmbeddedDocumentField(Date)
             slug = StringField(unique_with='date.year')
@@ -633,10 +641,12 @@ class IndexesTest(unittest.TestCase):
         """Ensure that uniqueness constraints are applied to fields on embedded documents.
         """
         class SubDocument(EmbeddedDocument):
+            meta = {'auto_create_index': True}
             year = IntField(db_field='yr')
             slug = StringField(unique=True)
 
         class BlogPost(Document):
+            meta = {'auto_create_index': True}
             title = StringField()
             sub = EmbeddedDocumentField(SubDocument)
 
@@ -663,10 +673,12 @@ class IndexesTest(unittest.TestCase):
         list field.
         """
         class SubDocument(EmbeddedDocument):
+            meta = {'auto_create_index': True}
             year = IntField(db_field='yr')
             slug = StringField(unique=True)
 
         class BlogPost(Document):
+            meta = {'auto_create_index': True}
             title = StringField()
             subs = ListField(EmbeddedDocumentField(SubDocument))
 
@@ -691,10 +703,12 @@ class IndexesTest(unittest.TestCase):
         embedded documents.  And work with unique_with as well.
         """
         class SubDocument(EmbeddedDocument):
+            meta = {'auto_create_index': True}
             year = IntField(db_field='yr')
             slug = StringField(unique=True)
 
         class BlogPost(Document):
+            meta = {'auto_create_index': True}
             title = StringField(unique_with='sub.year')
             sub = EmbeddedDocumentField(SubDocument)
 
@@ -746,6 +760,7 @@ class IndexesTest(unittest.TestCase):
             meta = {
                 'indexes': ['cust_id'],
                 'allow_inheritance': False,
+                'auto_create_index': True,
             }
 
         Customer.drop_collection()
@@ -806,7 +821,8 @@ class IndexesTest(unittest.TestCase):
                 comments = EmbeddedDocumentField(Comment)
                 meta = {'indexes': [
                     {'fields': ['pk', 'comments.comment_id'],
-                     'unique': True}]}
+                     'unique': True}],
+                    'auto_create_index': True}
         except UnboundLocalError:
             self.fail('Unbound local error at index + pk definition')
 
@@ -858,6 +874,7 @@ class IndexesTest(unittest.TestCase):
             provider_ids = DictField()
             meta = {
                 "indexes": ["provider_ids.foo", "provider_ids.bar"],
+                'auto_create_index': True
             }
         MyDoc(provider_ids={}).save()
         info = MyDoc.objects._collection.index_information()
@@ -899,6 +916,7 @@ class IndexesTest(unittest.TestCase):
             ref_id = StringField()
             meta = {
                 "indexes": ["#ref_id"],
+                'auto_create_index': True
             }
 
         indexes = Book.objects._collection.index_information()

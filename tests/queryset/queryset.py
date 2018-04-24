@@ -801,12 +801,15 @@ class QuerySetTest(unittest.TestCase):
         """
 
         class Comment(EmbeddedDocument):
+            meta = {'auto_create_index': True}
             name = StringField()
 
         class Post(EmbeddedDocument):
+            meta = {'auto_create_index': True}
             comments = ListField(EmbeddedDocumentField(Comment))
 
         class Blog(Document):
+            meta = {'auto_create_index': True}
             title = StringField(unique=True)
             tags = ListField(StringField())
             posts = ListField(EmbeddedDocumentField(Post))
@@ -2395,10 +2398,10 @@ class QuerySetTest(unittest.TestCase):
                      .comment('looking for an adult')
                      .first())
             ops = q.get_ops()
-            self.assertEqual(len(ops), 1)
+            self.assertEqual(len(ops), 1)  # collection count command
             op = ops[0]
-            self.assertEqual(op['command']['$query'], {'age': {'$gte': 18}})
-            self.assertEqual(op['command']['$comment'], 'looking for an adult')
+            self.assertEqual(op['command']['filter'], {'age': {'$gte': 18}})
+            self.assertEqual(op['command']['comment'], 'looking for an adult')
 
     def test_map_reduce(self):
         """Ensure map/reduce is both mapping and reducing.
@@ -3205,9 +3208,11 @@ class QuerySetTest(unittest.TestCase):
             meta = {'indexes': [
                 {'fields': ['$title', "$content"],
                  'default_language': 'portuguese',
-                 'weights': {'title': 10, 'content': 2}
+                 'weights': {'title': 10, 'content': 2},
                  }
-            ]}
+
+            ],                'force_auto_create_index': True
+            }
 
         News.drop_collection()
 
@@ -3215,6 +3220,7 @@ class QuerySetTest(unittest.TestCase):
              content="O Brasil sofre com a perda de Neymar").save()
 
         info = News.objects._collection.index_information()
+        print(info)
         self.assertTrue('title_text_content_text' in info)
         self.assertTrue('textIndexVersion' in info['title_text_content_text'])
 

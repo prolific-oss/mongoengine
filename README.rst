@@ -1,6 +1,10 @@
 ===========
 MongoEngine
 ===========
+
+* Changed auto_create_index to be default off, and to only build if the collection is new.  Otherwise, use force_auto_create_index to create indexes on every save. *
+
+
 :Info: MongoEngine is an ORM-like layer on top of PyMongo.
 :Repository: https://github.com/MongoEngine/mongoengine
 :Author: Harry Marr (http://github.com/hmarr)

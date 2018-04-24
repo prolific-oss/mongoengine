@@ -194,8 +194,10 @@ class Document(BaseDocument):
                 cls._collection = db[collection_name]
 
             # Ensure indexes on the collection unless auto_create_index was
-            # set to False.
-            if cls._meta.get('auto_create_index', False) or cls._collection.count() == 0:
+            # set to False and the collection is empty.
+            if cls._meta.get('auto_create_index', False) and cls._collection.count() == 0:
+                cls.ensure_indexes()
+            if cls._meta.get('force_auto_create_index', False):
                 cls.ensure_indexes()
 
         return cls._collection
@@ -370,13 +372,12 @@ class Document(BaseDocument):
         signals.pre_save_post_validation.send(self.__class__, document=self,
                                               created=created, **signal_kwargs)
 
-        if self._meta.get('auto_create_index', False):
-            self.ensure_indexes()
-
         try:
             # Save a new document or update an existing one
             collection = self._get_collection()
-            if self._meta.get('auto_create_index', False):
+            if self._meta.get('auto_create_index', False) and collection.count() == 0:
+                self.ensure_indexes()
+            if self._meta.get('force_auto_create_index', False):
                 self.ensure_indexes()
             if created:
                 object_id = self._save_create(doc, force_insert, write_concern)
@@ -885,7 +886,6 @@ class Document(BaseDocument):
                 # because of https://jira.mongodb.org/browse/SERVER-769
                 if 'cls' in opts:
                     del opts['cls']
-                print(fields, opts)
 
                 if IS_PYMONGO_3:
                     if fields == [('_id', 1)]:

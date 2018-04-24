@@ -1081,7 +1081,7 @@ class InstanceTest(unittest.TestCase):
         self.assertTrue(w1.toggle)
         self.assertEqual(w1.count, 1)
         self.assertRaises(SaveConditionError,
-            w1.save, save_condition={'save_id': UUID(42)})
+                          w1.save, save_condition={'save_id': UUID(42)})
         w1.reload()
         self.assertFalse(w1.toggle)
         self.assertEqual(w1.count, 0)
@@ -1110,7 +1110,7 @@ class InstanceTest(unittest.TestCase):
         flip(w2)
         flip(w2)
         self.assertRaises(SaveConditionError,
-            w2.save, save_condition={'save_id': old_id})
+                          w2.save, save_condition={'save_id': old_id})
         w2.reload()
         self.assertFalse(w2.toggle)
         self.assertEqual(w2.count, 2)
@@ -1123,7 +1123,7 @@ class InstanceTest(unittest.TestCase):
         self.assertEqual(w1.count, 3)
         flip(w1)
         self.assertRaises(SaveConditionError,
-            w1.save, save_condition={'count__gte': w1.count})
+                          w1.save, save_condition={'count__gte': w1.count})
         w1.reload()
         self.assertTrue(w1.toggle)
         self.assertEqual(w1.count, 3)
@@ -1312,6 +1312,7 @@ class InstanceTest(unittest.TestCase):
 
     def test_update_unique_field(self):
         class Doc(Document):
+            meta = {'auto_create_index': True}
             name = StringField(unique=True)
 
         doc1 = Doc(name="first").save()
@@ -1907,7 +1908,8 @@ class InstanceTest(unittest.TestCase):
         """
         class Record(Document):
             name = StringField()
-            children = ListField(ReferenceField('self', reverse_delete_rule=PULL))
+            children = ListField(ReferenceField(
+                'self', reverse_delete_rule=PULL))
 
         Record.drop_collection()
 
@@ -1918,7 +1920,6 @@ class InstanceTest(unittest.TestCase):
 
         child_record.delete()
         self.assertEqual(Record.objects(name='parent').get().children, [])
-
 
     def test_reverse_delete_rule_with_custom_id_field(self):
         """Ensure that a referenced document with custom primary key
@@ -2181,8 +2182,10 @@ class InstanceTest(unittest.TestCase):
         post.save()
 
         # Delete the Person should be denied
-        self.assertRaises(OperationError, author.delete)  # Should raise denied error
-        self.assertEqual(BlogPost.objects.count(), 1)  # No objects may have been deleted
+        # Should raise denied error
+        self.assertRaises(OperationError, author.delete)
+        # No objects may have been deleted
+        self.assertEqual(BlogPost.objects.count(), 1)
         self.assertEqual(self.Person.objects.count(), 1)
 
         # Other users, that don't have BlogPosts must be removable, like normal
@@ -2271,7 +2274,8 @@ class InstanceTest(unittest.TestCase):
     def test_picklable(self):
         pickle_doc = PickleTest(number=1, string="One", lists=['1', '2'])
         pickle_doc.embedded = PickleEmbedded()
-        pickled_doc = pickle.dumps(pickle_doc)  # make sure pickling works even before the doc is saved
+        # make sure pickling works even before the doc is saved
+        pickled_doc = pickle.dumps(pickle_doc)
         pickle_doc.save()
 
         pickled_doc = pickle.dumps(pickle_doc)
@@ -2295,7 +2299,8 @@ class InstanceTest(unittest.TestCase):
 
     def test_regular_document_pickle(self):
         pickle_doc = PickleTest(number=1, string="One", lists=['1', '2'])
-        pickled_doc = pickle.dumps(pickle_doc)  # make sure pickling works even before the doc is saved
+        # make sure pickling works even before the doc is saved
+        pickled_doc = pickle.dumps(pickle_doc)
         pickle_doc.save()
 
         pickled_doc = pickle.dumps(pickle_doc)
@@ -2319,7 +2324,8 @@ class InstanceTest(unittest.TestCase):
         pickle_doc = PickleDynamicTest(
             name="test", number=1, string="One", lists=['1', '2'])
         pickle_doc.embedded = PickleDynamicEmbedded(foo="Bar")
-        pickled_doc = pickle.dumps(pickle_doc)  # make sure pickling works even before the doc is saved
+        # make sure pickling works even before the doc is saved
+        pickled_doc = pickle.dumps(pickle_doc)
 
         pickle_doc.save()
 

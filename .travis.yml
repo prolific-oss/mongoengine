@@ -15,11 +15,11 @@ language: python
 python:
 - 3.6
 
-env:
-- MONGODB=3.0 PYMONGO=3.x
-- MONGODB=3.2 PYMONGO=3.x
-- MONGODB=3.4 PYMONGO=3.x
-- MONGODB=3.6 PYMONGO=3.x
+# env:
+# - MONGODB=3.0 PYMONGO=3.x
+# - MONGODB=3.2 PYMONGO=3.x
+# - MONGODB=3.4 PYMONGO=3.x
+# - MONGODB=3.6 PYMONGO=3.x
 
 matrix:
   # Finish the build as soon as one job fails

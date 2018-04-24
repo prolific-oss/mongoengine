@@ -270,7 +270,8 @@ class Document(BaseDocument):
             query = {}
 
         if self.pk is None:
-            raise InvalidDocumentError('The document does not have a primary key.')
+            raise InvalidDocumentError(
+                'The document does not have a primary key.')
 
         id_field = self._meta['id_field']
         query = query.copy() if isinstance(query, dict) else query.to_query(self)
@@ -278,7 +279,8 @@ class Document(BaseDocument):
         if id_field not in query:
             query[id_field] = self.pk
         elif query[id_field] != self.pk:
-            raise InvalidQueryError('Invalid document modify query: it must modify only this document.')
+            raise InvalidQueryError(
+                'Invalid document modify query: it must modify only this document.')
 
         # Need to add shard key to query, or you get an error
         query.update(self._object_key)
@@ -373,6 +375,7 @@ class Document(BaseDocument):
 
         try:
             # Save a new document or update an existing one
+            collection = self._get_collection()
             if created:
                 object_id = self._save_create(doc, force_insert, write_concern)
             else:
@@ -436,7 +439,8 @@ class Document(BaseDocument):
         # but they forget to return the _id value passed back, therefore getting it back here
         # Correct behaviour in 2.X and in 3.0.1+ versions
         if not object_id and pymongo.version_tuple == (3, 0):
-            pk_as_mongo_obj = self._fields.get(self._meta['id_field']).to_mongo(self.pk)
+            pk_as_mongo_obj = self._fields.get(
+                self._meta['id_field']).to_mongo(self.pk)
             object_id = (
                 self._qs.filter(pk=pk_as_mongo_obj).first() and
                 self._qs.filter(pk=pk_as_mongo_obj).first().pk
@@ -606,7 +610,8 @@ class Document(BaseDocument):
         except pymongo.errors.OperationFailure as err:
             message = u'Could not delete document (%s)' % err.message
             raise OperationError(message)
-        signals.post_delete.send(self.__class__, document=self, **signal_kwargs)
+        signals.post_delete.send(
+            self.__class__, document=self, **signal_kwargs)
 
     def switch_db(self, db_alias, keep_created=True):
         """
@@ -714,7 +719,8 @@ class Document(BaseDocument):
                     try:
                         # If field is a special field, e.g. items is stored as _reserved_items,
                         # an KeyError is thrown. So try to retrieve the field from _data
-                        setattr(self, field, self._reload(field, obj._data.get(field)))
+                        setattr(self, field, self._reload(
+                            field, obj._data.get(field)))
                     except KeyError:
                         # If field is removed from the database while the object
                         # is in memory, a reload would cause a KeyError
@@ -879,7 +885,8 @@ class Document(BaseDocument):
                     del opts['cls']
 
                 if IS_PYMONGO_3:
-                    collection.create_index(fields, background=background, **opts)
+                    collection.create_index(
+                        fields, background=background, **opts)
                 else:
                     collection.ensure_index(fields, background=background,
                                             drop_dups=drop_dups, **opts)

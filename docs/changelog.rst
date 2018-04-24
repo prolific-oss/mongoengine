@@ -118,7 +118,6 @@ Changes in 0.10.3
 - Fix `read_preference` (it had chaining issues with PyMongo 2.x and it didn't work at all with PyMongo 3.x) #1042
 
 Changes in 0.10.2
-=================
 - Allow shard key to point to a field in an embedded document. #551
 - Allow arbirary metadata in fields. #1129
 - ReferenceFields now support abstract document types. #837
@@ -178,8 +177,10 @@ Changes in 0.9.0
 - Fix tests for pymongo 2.8+ #877
 - No module named 'django.utils.importlib' (Django dev) #872
 - Field Choices Now Accept Subclasses of Documents
-- Ensure Indexes before Each Save #812
-- Generate Unique Indices for Lists of EmbeddedDocuments #358
+=======
+Changes in 0.9.X - DEV
+======================
+- Generate Unique Indicies for Lists of EmbeddedDocuments #358
 - Sparse fields #515
 - write_concern not in params of Collection#remove #801
 - Better BaseDocument equality check when not saved #798

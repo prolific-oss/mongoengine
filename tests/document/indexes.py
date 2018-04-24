@@ -138,12 +138,12 @@ class IndexesTest(unittest.TestCase):
             title = StringField()
             meta = {
                 'indexes': [
-                        {
-                            'fields': ('title',),
-                        },
+                    {
+                        'fields': ('title',),
+                    },
                 ],
                 'allow_inheritance': True,
-                }
+            }
 
         class B(A):
             description = StringField()
@@ -159,11 +159,11 @@ class IndexesTest(unittest.TestCase):
             title = StringField()
             meta = {
                 'indexes': [
-                        {'fields': ('title',), 'cls': False},
+                    {'fields': ('title',), 'cls': False},
                 ],
                 'allow_inheritance': True,
                 'index_cls': False
-                }
+            }
 
         self.assertEqual([('title', 1)], A._meta['index_specs'][0]['fields'])
         A._get_collection().drop_indexes()
@@ -179,7 +179,8 @@ class IndexesTest(unittest.TestCase):
                 'allow_inheritance': True
             }
         self.assertEqual([('c', 1)], B._meta['index_specs'][1]['fields'])
-        self.assertEqual([('_cls', 1), ('d', 1)], B._meta['index_specs'][2]['fields'])
+        self.assertEqual([('_cls', 1), ('d', 1)],
+                         B._meta['index_specs'][2]['fields'])
 
     def test_build_index_spec_is_not_destructive(self):
 
@@ -198,7 +199,7 @@ class IndexesTest(unittest.TestCase):
         MyDoc.ensure_indexes()
 
         self.assertEqual(MyDoc._meta['index_specs'],
-                        [{'fields': [('keywords', 1)]}])
+                         [{'fields': [('keywords', 1)]}])
 
     def test_embedded_document_index_meta(self):
         """Ensure that embedded document indexes are created explicitly
@@ -218,7 +219,7 @@ class IndexesTest(unittest.TestCase):
             }
 
         self.assertEqual([{'fields': [('rank.title', 1)]}],
-                        Person._meta['index_specs'])
+                         Person._meta['index_specs'])
 
         Person.drop_collection()
 
@@ -255,7 +256,8 @@ class IndexesTest(unittest.TestCase):
             location = DictField()
 
         class Place(Document):
-            current = DictField(field=EmbeddedDocumentField('EmbeddedLocation'))
+            current = DictField(
+                field=EmbeddedDocumentField('EmbeddedLocation'))
             meta = {
                 'allow_inheritance': True,
                 'indexes': [
@@ -320,10 +322,12 @@ class IndexesTest(unittest.TestCase):
             location = DictField()
             name = StringField()
 
-        Place.create_index({'fields': (')location.point', 'name')}, bucketSize=10)
+        Place.create_index(
+            {'fields': (')location.point', 'name')}, bucketSize=10)
         info = Place._get_collection().index_information()
         info = [value['key'] for key, value in info.iteritems()]
-        self.assertTrue([('location.point', 'geoHaystack'), ('name', 1)] in info)
+        self.assertTrue(
+            [('location.point', 'geoHaystack'), ('name', 1)] in info)
 
     def test_dictionary_indexes(self):
         """Ensure that indexes are used when meta[indexes] contains
@@ -340,7 +344,7 @@ class IndexesTest(unittest.TestCase):
             }
 
         self.assertEqual([{'fields': [('addDate', -1)], 'unique': True,
-                          'sparse': True}],
+                           'sparse': True}],
                          BlogPost._meta['index_specs'])
 
         BlogPost.drop_collection()
@@ -499,27 +503,33 @@ class IndexesTest(unittest.TestCase):
         if not IS_MONGODB_3:
             self.assertFalse(query_plan['indexOnly'])
         else:
-            self.assertEqual(query_plan.get('queryPlanner').get('winningPlan').get('inputStage').get('stage'), 'IDHACK')
+            self.assertEqual(query_plan.get('queryPlanner').get(
+                'winningPlan').get('inputStage').get('stage'), 'IDHACK')
 
         query_plan = Test.objects(id=obj.id).only('id').explain()
         if not IS_MONGODB_3:
             self.assertTrue(query_plan['indexOnly'])
         else:
-            self.assertEqual(query_plan.get('queryPlanner').get('winningPlan').get('inputStage').get('stage'), 'IDHACK')
+            self.assertEqual(query_plan.get('queryPlanner').get(
+                'winningPlan').get('inputStage').get('stage'), 'IDHACK')
 
         query_plan = Test.objects(a=1).only('a').exclude('id').explain()
         if not IS_MONGODB_3:
             self.assertTrue(query_plan['indexOnly'])
         else:
-            self.assertEqual(query_plan.get('queryPlanner').get('winningPlan').get('inputStage').get('stage'), 'IXSCAN')
-            self.assertEqual(query_plan.get('queryPlanner').get('winningPlan').get('stage'), 'PROJECTION')
+            self.assertEqual(query_plan.get('queryPlanner').get(
+                'winningPlan').get('inputStage').get('stage'), 'IXSCAN')
+            self.assertEqual(query_plan.get('queryPlanner').get(
+                'winningPlan').get('stage'), 'PROJECTION')
 
         query_plan = Test.objects(a=1).explain()
         if not IS_MONGODB_3:
             self.assertFalse(query_plan['indexOnly'])
         else:
-            self.assertEqual(query_plan.get('queryPlanner').get('winningPlan').get('inputStage').get('stage'), 'IXSCAN')
-            self.assertEqual(query_plan.get('queryPlanner').get('winningPlan').get('stage'), 'FETCH')
+            self.assertEqual(query_plan.get('queryPlanner').get(
+                'winningPlan').get('inputStage').get('stage'), 'IXSCAN')
+            self.assertEqual(query_plan.get('queryPlanner').get(
+                'winningPlan').get('stage'), 'FETCH')
 
     def test_index_on_id(self):
 
@@ -538,7 +548,7 @@ class IndexesTest(unittest.TestCase):
 
         indexes = BlogPost.objects._collection.index_information()
         self.assertEqual(indexes['categories_1__id_1']['key'],
-                                 [('categories', 1), ('_id', 1)])
+                         [('categories', 1), ('_id', 1)])
 
     def test_hint(self):
 
@@ -795,8 +805,8 @@ class IndexesTest(unittest.TestCase):
             class BlogPost(Document):
                 comments = EmbeddedDocumentField(Comment)
                 meta = {'indexes': [
-                            {'fields': ['pk', 'comments.comment_id'],
-                             'unique': True}]}
+                    {'fields': ['pk', 'comments.comment_id'],
+                     'unique': True}]}
         except UnboundLocalError:
             self.fail('Unbound local error at index + pk definition')
 
@@ -837,8 +847,10 @@ class IndexesTest(unittest.TestCase):
         # We can't directly call ReportDictField.objects.get(pk=my_key),
         # because dicts are unordered, and if the order in MongoDB is
         # different than the one in `my_key`, this test will fail.
-        self.assertEqual(report, ReportDictField.objects.get(pk__name=my_key['name']))
-        self.assertEqual(report, ReportDictField.objects.get(pk__term=my_key['term']))
+        self.assertEqual(report, ReportDictField.objects.get(
+            pk__name=my_key['name']))
+        self.assertEqual(report, ReportDictField.objects.get(
+            pk__term=my_key['term']))
 
     def test_string_indexes(self):
 
@@ -865,7 +877,8 @@ class IndexesTest(unittest.TestCase):
         info = MyDoc.objects._collection.index_information()
         self.assertEqual([('provider_ids.foo', 1), ('provider_ids.bar', 1)],
                          info['provider_ids.foo_1_provider_ids.bar_1']['key'])
-        self.assertTrue(info['provider_ids.foo_1_provider_ids.bar_1']['sparse'])
+        self.assertTrue(
+            info['provider_ids.foo_1_provider_ids.bar_1']['sparse'])
 
     @needs_mongodb_v26
     def test_text_indexes(self):
@@ -890,47 +903,8 @@ class IndexesTest(unittest.TestCase):
 
         indexes = Book.objects._collection.index_information()
         self.assertTrue("ref_id_hashed" in indexes)
-        self.assertTrue(('ref_id', 'hashed') in indexes["ref_id_hashed"]["key"])
-
-    def test_indexes_after_database_drop(self):
-        """
-        Test to ensure that indexes are re-created on a collection even
-        after the database has been dropped.
-
-        Issue #812
-        """
-        # Use a new connection and database since dropping the database could
-        # cause concurrent tests to fail.
-        connection = connect(db='tempdatabase',
-                             alias='test_indexes_after_database_drop')
-
-        class BlogPost(Document):
-            title = StringField()
-            slug = StringField(unique=True)
-
-            meta = {'db_alias': 'test_indexes_after_database_drop'}
-
-        try:
-            BlogPost.drop_collection()
-
-            # Create Post #1
-            post1 = BlogPost(title='test1', slug='test')
-            post1.save()
-
-            # Drop the Database
-            connection.drop_database('tempdatabase')
-
-            # Re-create Post #1
-            post1 = BlogPost(title='test1', slug='test')
-            post1.save()
-
-            # Create Post #2
-            post2 = BlogPost(title='test2', slug='test')
-            self.assertRaises(NotUniqueError, post2.save)
-        finally:
-            # Drop the temporary database at the end
-            connection.drop_database('tempdatabase')
-
+        self.assertTrue(('ref_id', 'hashed')
+                        in indexes["ref_id_hashed"]["key"])
 
     def test_index_dont_send_cls_option(self):
         """
@@ -967,11 +941,14 @@ class IndexesTest(unittest.TestCase):
 
         index_info = TestDoc._get_collection().index_information()
         for key in index_info:
-            del index_info[key]['v']  # drop the index version - we don't care about that here
+            # drop the index version - we don't care about that here
+            del index_info[key]['v']
             if 'ns' in index_info[key]:
-                del index_info[key]['ns']  # drop the index namespace - we don't care about that here, MongoDB 3+
+                # drop the index namespace - we don't care about that here, MongoDB 3+
+                del index_info[key]['ns']
             if 'dropDups' in index_info[key]:
-                del index_info[key]['dropDups']  # drop the index dropDups - it is deprecated in MongoDB 3+
+                # drop the index dropDups - it is deprecated in MongoDB 3+
+                del index_info[key]['dropDups']
 
         self.assertEqual(index_info, {
             'txt_1': {

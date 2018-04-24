@@ -801,12 +801,15 @@ class QuerySetTest(unittest.TestCase):
         """
 
         class Comment(EmbeddedDocument):
+            meta = {'auto_create_index': True}
             name = StringField()
 
         class Post(EmbeddedDocument):
+            meta = {'auto_create_index': True}
             comments = ListField(EmbeddedDocumentField(Comment))
 
         class Blog(Document):
+            meta = {'auto_create_index': True}
             title = StringField(unique=True)
             tags = ListField(StringField())
             posts = ListField(EmbeddedDocumentField(Post))
@@ -834,7 +837,7 @@ class QuerySetTest(unittest.TestCase):
                 blogs.append(Blog(title="post %s" % i, posts=[post1, post2]))
 
             Blog.objects.insert(blogs, load_bulk=False)
-            if mongodb_version < (2, 6):
+            if mongodb_version < (2, 6) or mongodb_version > (3, 0):
                 self.assertEqual(q, 1)
             else:
                 # profiling logs each doc now in the bulk op
@@ -847,7 +850,7 @@ class QuerySetTest(unittest.TestCase):
             self.assertEqual(q, 0)
 
             Blog.objects.insert(blogs)
-            if mongodb_version < (2, 6):
+            if mongodb_version < (2, 6) or mongodb_version > (3, 0):
                 self.assertEqual(q, 2)  # 1 for insert, and 1 for in bulk fetch
             else:
                 # 99 for insert, and 1 for in bulk fetch

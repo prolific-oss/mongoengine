@@ -195,7 +195,7 @@ class Document(BaseDocument):
 
             # Ensure indexes on the collection unless auto_create_index was
             # set to False.
-            if cls._meta.get('auto_create_index', True):
+            if cls._meta.get('auto_create_index', False):
                 cls.ensure_indexes()
 
         return cls._collection
@@ -370,7 +370,7 @@ class Document(BaseDocument):
         signals.pre_save_post_validation.send(self.__class__, document=self,
                                               created=created, **signal_kwargs)
 
-        if self._meta.get('auto_create_index', True):
+        if self._meta.get('auto_create_index', False):
             self.ensure_indexes()
 
         try:

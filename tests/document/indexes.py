@@ -859,7 +859,7 @@ class IndexesTest(unittest.TestCase):
             meta = {
                 "indexes": ["provider_ids.foo", "provider_ids.bar"],
             }
-
+        MyDoc(provider_ids={}).save()
         info = MyDoc.objects._collection.index_information()
         info = [value['key'] for key, value in info.iteritems()]
         self.assertTrue([('provider_ids.foo', 1)] in info)

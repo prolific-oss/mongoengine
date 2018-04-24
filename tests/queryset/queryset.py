@@ -801,15 +801,12 @@ class QuerySetTest(unittest.TestCase):
         """
 
         class Comment(EmbeddedDocument):
-            meta = {'auto_create_index': True}
             name = StringField()
 
         class Post(EmbeddedDocument):
-            meta = {'auto_create_index': True}
             comments = ListField(EmbeddedDocumentField(Comment))
 
         class Blog(Document):
-            meta = {'auto_create_index': True}
             title = StringField(unique=True)
             tags = ListField(StringField())
             posts = ListField(EmbeddedDocumentField(Post))
@@ -3213,12 +3210,13 @@ class QuerySetTest(unittest.TestCase):
             ]}
 
         News.drop_collection()
-        info = News.objects._collection.index_information()
-        self.assertTrue('title_text_content_text' in info)
-        self.assertTrue('textIndexVersion' in info['title_text_content_text'])
 
         News(title="Neymar quebrou a vertebra",
              content="O Brasil sofre com a perda de Neymar").save()
+
+        info = News.objects._collection.index_information()
+        self.assertTrue('title_text_content_text' in info)
+        self.assertTrue('textIndexVersion' in info['title_text_content_text'])
 
         News(title="Brasil passa para as quartas de finais",
              content="Com o brasil nas quartas de finais teremos um "

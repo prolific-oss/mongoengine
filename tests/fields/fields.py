@@ -72,8 +72,8 @@ class FieldTest(MongoDBTestCase):
         # Confirm saving now would store values
         data_to_be_saved = sorted(person.to_mongo().keys())
         self.assertEqual(data_to_be_saved,
-            ['age', 'created', 'name', 'userid']
-        )
+                         ['age', 'created', 'name', 'userid']
+                         )
 
         self.assertTrue(person.validate() is None)
 
@@ -539,7 +539,8 @@ class FieldTest(MongoDBTestCase):
             string_value = DecimalField(precision=4, force_string=True)
 
         Person.drop_collection()
-        values_to_store = [10, 10.1, 10.11, "10.111", Decimal("10.1111"), Decimal("10.11111")]
+        values_to_store = [10, 10.1, 10.11, "10.111",
+                           Decimal("10.1111"), Decimal("10.11111")]
         for store_at_creation in [True, False]:
             for value in values_to_store:
                 # to_python is called explicitly if values were sent in the kwargs of __init__
@@ -839,12 +840,16 @@ class FieldTest(MongoDBTestCase):
         mm = dd = hh = ii = ss = [1, 10]
 
         for values in itertools.product([2014], mm, dd, hh, ii, ss, microsecond):
-            stored = LogEntry(date=datetime.datetime(*values)).to_mongo()['date']
-            self.assertTrue(re.match('^\d{4},\d{2},\d{2},\d{2},\d{2},\d{2},\d{6}$', stored) is not None)
+            stored = LogEntry(date=datetime.datetime(
+                *values)).to_mongo()['date']
+            self.assertTrue(
+                re.match('^\d{4},\d{2},\d{2},\d{2},\d{2},\d{2},\d{6}$', stored) is not None)
 
         # Test separator
-        stored = LogEntry(date_with_dots=datetime.datetime(2014, 1, 1)).to_mongo()['date_with_dots']
-        self.assertTrue(re.match('^\d{4}.\d{2}.\d{2}.\d{2}.\d{2}.\d{2}.\d{6}$', stored) is not None)
+        stored = LogEntry(date_with_dots=datetime.datetime(
+            2014, 1, 1)).to_mongo()['date_with_dots']
+        self.assertTrue(
+            re.match('^\d{4}.\d{2}.\d{2}.\d{2}.\d{2}.\d{2}.\d{6}$', stored) is not None)
 
     def test_complexdatetime_usage(self):
         """Tests for complex datetime fields - which can handle
@@ -1113,11 +1118,13 @@ class FieldTest(MongoDBTestCase):
         post = BlogPost.objects(info=['1', '2']).get()
         post.info += ['3', '4']
         post.save()
-        self.assertEqual(BlogPost.objects(info=['1', '2', '3', '4']).count(), 1)
+        self.assertEqual(BlogPost.objects(
+            info=['1', '2', '3', '4']).count(), 1)
         post = BlogPost.objects(info=['1', '2', '3', '4']).get()
         post.info *= 2
         post.save()
-        self.assertEqual(BlogPost.objects(info=['1', '2', '3', '4', '1', '2', '3', '4']).count(), 1)
+        self.assertEqual(BlogPost.objects(
+            info=['1', '2', '3', '4', '1', '2', '3', '4']).count(), 1)
 
     def test_list_field_manipulative_operators(self):
         """Ensure that ListField works with standard list operators that manipulate the list.
@@ -1152,7 +1159,7 @@ class FieldTest(MongoDBTestCase):
         # aka 'del list[index]'
         # aka 'operator.delitem(list, index)'
         reset_post()
-        del post.info[2] # del from middle ('2')
+        del post.info[2]  # del from middle ('2')
         self.assertEqual(post.info, ['0', '1', '3', '4', '5'])
         post.save()
         post.reload()
@@ -1162,7 +1169,7 @@ class FieldTest(MongoDBTestCase):
         # aka 'del list[i:j]'
         # aka 'operator.delitem(list, slice(i,j))'
         reset_post()
-        del post.info[1:3] # removes '1', '2'
+        del post.info[1:3]  # removes '1', '2'
         self.assertEqual(post.info, ['0', '3', '4', '5'])
         post.save()
         post.reload()
@@ -1182,28 +1189,34 @@ class FieldTest(MongoDBTestCase):
         # aka 'list *= number'
         reset_post()
         post.info *= 2
-        self.assertEqual(post.info, ['0', '1', '2', '3', '4', '5', '0', '1', '2', '3', '4', '5'])
+        self.assertEqual(
+            post.info, ['0', '1', '2', '3', '4', '5', '0', '1', '2', '3', '4', '5'])
         post.save()
         post.reload()
-        self.assertEqual(post.info, ['0', '1', '2', '3', '4', '5', '0', '1', '2', '3', '4', '5'])
+        self.assertEqual(
+            post.info, ['0', '1', '2', '3', '4', '5', '0', '1', '2', '3', '4', '5'])
 
         # '__mul__'
         # aka 'listA*listB'
         reset_post()
         post.info = post.info * 2
-        self.assertEqual(post.info, ['0', '1', '2', '3', '4', '5', '0', '1', '2', '3', '4', '5'])
+        self.assertEqual(
+            post.info, ['0', '1', '2', '3', '4', '5', '0', '1', '2', '3', '4', '5'])
         post.save()
         post.reload()
-        self.assertEqual(post.info, ['0', '1', '2', '3', '4', '5', '0', '1', '2', '3', '4', '5'])
+        self.assertEqual(
+            post.info, ['0', '1', '2', '3', '4', '5', '0', '1', '2', '3', '4', '5'])
 
         # '__rmul__'
         # aka 'listB*listA'
         reset_post()
         post.info = 2 * post.info
-        self.assertEqual(post.info, ['0', '1', '2', '3', '4', '5', '0', '1', '2', '3', '4', '5'])
+        self.assertEqual(
+            post.info, ['0', '1', '2', '3', '4', '5', '0', '1', '2', '3', '4', '5'])
         post.save()
         post.reload()
-        self.assertEqual(post.info, ['0', '1', '2', '3', '4', '5', '0', '1', '2', '3', '4', '5'])
+        self.assertEqual(
+            post.info, ['0', '1', '2', '3', '4', '5', '0', '1', '2', '3', '4', '5'])
 
         # '__setitem__(index, value)'
         # aka 'list[index]=value'
@@ -1228,18 +1241,22 @@ class FieldTest(MongoDBTestCase):
         # aka 'setitem(listA, slice(i, j), listB)'
         reset_post()
         post.info[1:3] = ['h', 'e', 'l', 'l', 'o']
-        self.assertEqual(post.info, ['0', 'h', 'e', 'l', 'l', 'o', '3', '4', '5'])
+        self.assertEqual(
+            post.info, ['0', 'h', 'e', 'l', 'l', 'o', '3', '4', '5'])
         post.save()
         post.reload()
-        self.assertEqual(post.info, ['0', 'h', 'e', 'l', 'l', 'o', '3', '4', '5'])
+        self.assertEqual(
+            post.info, ['0', 'h', 'e', 'l', 'l', 'o', '3', '4', '5'])
 
         # '__setitem__(slice(i, j), listB)' with negative i and j
         reset_post()
         post.info[-5:-3] = ['h', 'e', 'l', 'l', 'o']
-        self.assertEqual(post.info, ['0', 'h', 'e', 'l', 'l', 'o', '3', '4', '5'])
+        self.assertEqual(
+            post.info, ['0', 'h', 'e', 'l', 'l', 'o', '3', '4', '5'])
         post.save()
         post.reload()
-        self.assertEqual(post.info, ['0', 'h', 'e', 'l', 'l', 'o', '3', '4', '5'])
+        self.assertEqual(
+            post.info, ['0', 'h', 'e', 'l', 'l', 'o', '3', '4', '5'])
 
         # negative
 
@@ -1254,10 +1271,12 @@ class FieldTest(MongoDBTestCase):
         # 'extend'
         reset_post()
         post.info.extend(['h', 'e', 'l', 'l', 'o'])
-        self.assertEqual(post.info, ['0', '1', '2', '3', '4', '5', 'h', 'e', 'l', 'l', 'o'])
+        self.assertEqual(
+            post.info, ['0', '1', '2', '3', '4', '5', 'h', 'e', 'l', 'l', 'o'])
         post.save()
         post.reload()
-        self.assertEqual(post.info, ['0', '1', '2', '3', '4', '5', 'h', 'e', 'l', 'l', 'o'])
+        self.assertEqual(
+            post.info, ['0', '1', '2', '3', '4', '5', 'h', 'e', 'l', 'l', 'o'])
         # 'insert'
 
         # 'pop'
@@ -1691,7 +1710,8 @@ class FieldTest(MongoDBTestCase):
         doc = Doc(field=to_embed.to_mongo().to_dict())
         doc.save()
         assert isinstance(doc.field, dict)
-        assert doc.field == {'_id': 2, 'recursive': {'_id': 1, 'recursive': {}}}
+        assert doc.field == {
+            '_id': 2, 'recursive': {'_id': 1, 'recursive': {}}}
         # Same thing with a Document with a _cls field
         to_embed_recursive = ToEmbedChild(id=1).save()
         to_embed_child = ToEmbedChild(
@@ -3363,7 +3383,7 @@ class FieldTest(MongoDBTestCase):
         self.assertFalse('base.counter' in
                          self.db['mongoengine.counters'].find().distinct('_id'))
         self.assertTrue(('foo.counter' and 'bar.counter') in
-                         self.db['mongoengine.counters'].find().distinct('_id'))
+                        self.db['mongoengine.counters'].find().distinct('_id'))
         self.assertEqual(foo.counter, bar.counter)
         self.assertEqual(foo._fields['counter'].owner_document, Foo)
         self.assertEqual(bar._fields['counter'].owner_document, Bar)
@@ -3525,7 +3545,8 @@ class FieldTest(MongoDBTestCase):
         # Don't run this test on pypy3, which doesn't support unicode regex:
         # https://bitbucket.org/pypy/pypy/issues/1821/regular-expression-doesnt-find-unicode
         if sys.version_info[:2] == (3, 2):
-            raise SkipTest('unicode email addresses are not supported on PyPy 3')
+            raise SkipTest(
+                'unicode email addresses are not supported on PyPy 3')
 
         class User(Document):
             email = EmailField()
@@ -3694,7 +3715,8 @@ class FieldTest(MongoDBTestCase):
         assert doc.field == to_embed
         # Same thing with a Document with a _cls field
         to_embed_recursive = ToEmbedChild(id=1).save()
-        to_embed_child = ToEmbedChild(id=2, recursive=to_embed_recursive).save()
+        to_embed_child = ToEmbedChild(
+            id=2, recursive=to_embed_recursive).save()
         doc = Doc(field=to_embed_child)
         doc.save()
         assert isinstance(doc.field, ToEmbedChild)
@@ -3734,8 +3756,10 @@ class FieldTest(MongoDBTestCase):
         Dog().save()
         Fish().save()
         Human().save()
-        self.assertEquals(Animal.objects(_cls__in=["Animal.Mammal.Dog", "Animal.Fish"]).count(), 2)
-        self.assertEquals(Animal.objects(_cls__in=["Animal.Fish.Guppy"]).count(), 0)
+        self.assertEquals(Animal.objects(
+            _cls__in=["Animal.Mammal.Dog", "Animal.Fish"]).count(), 2)
+        self.assertEquals(Animal.objects(
+            _cls__in=["Animal.Fish.Guppy"]).count(), 0)
 
     def test_sparse_field(self):
         class Doc(Document):
@@ -3778,7 +3802,8 @@ class FieldTest(MongoDBTestCase):
 
         doc = TestLongFieldConsideredAsInt64(some_long=42).save()
         db = get_db()
-        self.assertTrue(isinstance(db.test_long_field_considered_as_int64.find()[0]['some_long'], Int64))
+        self.assertTrue(isinstance(
+            db.test_long_field_considered_as_int64.find()[0]['some_long'], Int64))
         self.assertTrue(isinstance(doc.some_long, six.integer_types))
 
 
@@ -4163,9 +4188,11 @@ class EmbeddedDocumentListFieldTestCase(MongoDBTestCase):
         also sparse than multiple documents with an empty list can be saved.
         """
         class EmbeddedWithUnique(EmbeddedDocument):
+            meta = {'auto_create_index': True}
             number = IntField(unique=True)
 
         class A(Document):
+            meta = {'auto_create_index': True}
             my_list = ListField(EmbeddedDocumentField(EmbeddedWithUnique))
 
         A(my_list=[]).save()
@@ -4173,10 +4200,13 @@ class EmbeddedDocumentListFieldTestCase(MongoDBTestCase):
             A(my_list=[]).save()
 
         class EmbeddedWithSparseUnique(EmbeddedDocument):
+            meta = {'auto_create_index': True}
             number = IntField(unique=True, sparse=True)
 
         class B(Document):
-            my_list = ListField(EmbeddedDocumentField(EmbeddedWithSparseUnique))
+            meta = {'auto_create_index': True}
+            my_list = ListField(
+                EmbeddedDocumentField(EmbeddedWithSparseUnique))
 
         A.drop_collection()
         B.drop_collection()
@@ -4386,7 +4416,8 @@ class CachedReferenceFieldTest(MongoDBTestCase):
         Product.drop_collection()
 
         class Basket(Document):
-            products = ListField(CachedReferenceField(Product, fields=['name']))
+            products = ListField(
+                CachedReferenceField(Product, fields=['name']))
 
         Basket.drop_collection()
         product1 = Product(name='abc').save()
@@ -4670,7 +4701,8 @@ class LazyReferenceFieldTest(MongoDBTestCase):
     def test_lazy_reference_config(self):
         # Make sure ReferenceField only accepts a document class or a string
         # with a document class name.
-        self.assertRaises(ValidationError, LazyReferenceField, EmbeddedDocument)
+        self.assertRaises(
+            ValidationError, LazyReferenceField, EmbeddedDocument)
 
     def test_lazy_reference_simple(self):
         class Animal(Document):
@@ -4750,7 +4782,7 @@ class LazyReferenceFieldTest(MongoDBTestCase):
                 sub_animal.pk,
                 DBRef(sub_animal._get_collection_name(), sub_animal.pk),
                 LazyReference(SubAnimal, sub_animal.pk),
-                ):
+        ):
             p = Ocurrence(person="test", animal=ref).save()
             p.reload()
             self.assertIsInstance(p.animal, LazyReference)
@@ -4779,7 +4811,7 @@ class LazyReferenceFieldTest(MongoDBTestCase):
                 baddoc,
                 DBRef(baddoc._get_collection_name(), animal.pk),
                 LazyReference(BadDoc, animal.pk)
-                ):
+        ):
             with self.assertRaises(ValidationError):
                 p = Ocurrence(person="test", animal=bad).save()
 
@@ -4912,7 +4944,8 @@ class LazyReferenceFieldTest(MongoDBTestCase):
         self.assertEqual(animal, animalref)
         self.assertEqual(animalref, animal)
 
-        other_animalref = LazyReference(Animal, ObjectId("54495ad94c934721ede76f90"))
+        other_animalref = LazyReference(
+            Animal, ObjectId("54495ad94c934721ede76f90"))
         self.assertNotEqual(animal, other_animalref)
         self.assertNotEqual(other_animalref, animal)
 
@@ -5053,12 +5086,14 @@ class GenericLazyReferenceFieldTest(MongoDBTestCase):
         for ref in (
                 animal,
                 LazyReference(Animal, animal.pk),
-                {'_cls': 'Animal', '_ref': DBRef(animal._get_collection_name(), animal.pk)},
+                {'_cls': 'Animal', '_ref': DBRef(
+                    animal._get_collection_name(), animal.pk)},
 
                 sub_animal,
                 LazyReference(SubAnimal, sub_animal.pk),
-                {'_cls': 'SubAnimal', '_ref': DBRef(sub_animal._get_collection_name(), sub_animal.pk)},
-                ):
+                {'_cls': 'SubAnimal', '_ref': DBRef(
+                    sub_animal._get_collection_name(), sub_animal.pk)},
+        ):
             p = Ocurrence(person="test", animal=ref).save()
             p.reload()
             self.assertIsInstance(p.animal, (LazyReference, Document))
@@ -5086,7 +5121,7 @@ class GenericLazyReferenceFieldTest(MongoDBTestCase):
                 'foo',
                 baddoc,
                 LazyReference(BadDoc, animal.pk)
-                ):
+        ):
             with self.assertRaises(ValidationError):
                 p = Ocurrence(person="test", animal=bad).save()
 
@@ -5174,8 +5209,10 @@ class GenericLazyReferenceFieldTest(MongoDBTestCase):
         check_fields_type(occ)
         occ.reload()
         check_fields_type(occ)
-        animal1_ref = {'_cls': 'Animal', '_ref': DBRef(animal1._get_collection_name(), animal1.pk)}
-        animal2_ref = {'_cls': 'Animal', '_ref': DBRef(animal2._get_collection_name(), animal2.pk)}
+        animal1_ref = {'_cls': 'Animal', '_ref': DBRef(
+            animal1._get_collection_name(), animal1.pk)}
+        animal2_ref = {'_cls': 'Animal', '_ref': DBRef(
+            animal2._get_collection_name(), animal2.pk)}
         occ.direct = animal1_ref
         occ.in_list = [animal1_ref, animal2_ref]
         occ.in_embedded.direct = animal1_ref

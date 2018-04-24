@@ -14,6 +14,7 @@ class GeoQueriesTest(MongoDBTestCase):
     def _create_event_data(self, point_field_class=GeoPointField):
         """Create some sample data re-used in many of the tests below."""
         class Event(Document):
+            meta = {'force_auto_create_index': True}
             title = StringField()
             date = DateTimeField()
             location = point_field_class()
@@ -294,10 +295,12 @@ class GeoQueriesTest(MongoDBTestCase):
         well in an embedded document.
         """
         class Venue(EmbeddedDocument):
+            meta = {'force_auto_create_index': True}
             location = point_field_class()
             name = StringField()
 
         class Event(Document):
+            meta = {'force_auto_create_index': True}
             title = StringField()
             venue = EmbeddedDocumentField(Venue)
 
@@ -333,6 +336,7 @@ class GeoQueriesTest(MongoDBTestCase):
     def test_spherical_geospatial_operators(self):
         """Ensure that spherical geospatial queries are working."""
         class Point(Document):
+            meta = {'force_auto_create_index': True}
             location = GeoPointField()
 
         Point.drop_collection()
@@ -402,6 +406,7 @@ class GeoQueriesTest(MongoDBTestCase):
 
     def test_linestring(self):
         class Road(Document):
+            meta = {'force_auto_create_index': True}
             name = StringField()
             line = LineStringField()
 
@@ -423,40 +428,47 @@ class GeoQueriesTest(MongoDBTestCase):
         # Within
         polygon = {"type": "Polygon",
                    "coordinates": [[[40, 5], [40, 6], [41, 6], [41, 5], [40, 5]]]}
-        roads = Road.objects.filter(line__geo_within=polygon["coordinates"]).count()
+        roads = Road.objects.filter(
+            line__geo_within=polygon["coordinates"]).count()
         self.assertEqual(1, roads)
 
         roads = Road.objects.filter(line__geo_within=polygon).count()
         self.assertEqual(1, roads)
 
-        roads = Road.objects.filter(line__geo_within={"$geometry": polygon}).count()
+        roads = Road.objects.filter(
+            line__geo_within={"$geometry": polygon}).count()
         self.assertEqual(1, roads)
 
         # Intersects
         line = {"type": "LineString",
                 "coordinates": [[40, 5], [40, 6]]}
-        roads = Road.objects.filter(line__geo_intersects=line["coordinates"]).count()
+        roads = Road.objects.filter(
+            line__geo_intersects=line["coordinates"]).count()
         self.assertEqual(1, roads)
 
         roads = Road.objects.filter(line__geo_intersects=line).count()
         self.assertEqual(1, roads)
 
-        roads = Road.objects.filter(line__geo_intersects={"$geometry": line}).count()
+        roads = Road.objects.filter(
+            line__geo_intersects={"$geometry": line}).count()
         self.assertEqual(1, roads)
 
         polygon = {"type": "Polygon",
                    "coordinates": [[[40, 5], [40, 6], [41, 6], [41, 5], [40, 5]]]}
-        roads = Road.objects.filter(line__geo_intersects=polygon["coordinates"]).count()
+        roads = Road.objects.filter(
+            line__geo_intersects=polygon["coordinates"]).count()
         self.assertEqual(1, roads)
 
         roads = Road.objects.filter(line__geo_intersects=polygon).count()
         self.assertEqual(1, roads)
 
-        roads = Road.objects.filter(line__geo_intersects={"$geometry": polygon}).count()
+        roads = Road.objects.filter(
+            line__geo_intersects={"$geometry": polygon}).count()
         self.assertEqual(1, roads)
 
     def test_polygon(self):
         class Road(Document):
+            meta = {'force_auto_create_index': True}
             name = StringField()
             poly = PolygonField()
 
@@ -478,36 +490,42 @@ class GeoQueriesTest(MongoDBTestCase):
         # Within
         polygon = {"type": "Polygon",
                    "coordinates": [[[40, 5], [40, 6], [41, 6], [41, 5], [40, 5]]]}
-        roads = Road.objects.filter(poly__geo_within=polygon["coordinates"]).count()
+        roads = Road.objects.filter(
+            poly__geo_within=polygon["coordinates"]).count()
         self.assertEqual(1, roads)
 
         roads = Road.objects.filter(poly__geo_within=polygon).count()
         self.assertEqual(1, roads)
 
-        roads = Road.objects.filter(poly__geo_within={"$geometry": polygon}).count()
+        roads = Road.objects.filter(
+            poly__geo_within={"$geometry": polygon}).count()
         self.assertEqual(1, roads)
 
         # Intersects
         line = {"type": "LineString",
                 "coordinates": [[40, 5], [41, 6]]}
-        roads = Road.objects.filter(poly__geo_intersects=line["coordinates"]).count()
+        roads = Road.objects.filter(
+            poly__geo_intersects=line["coordinates"]).count()
         self.assertEqual(1, roads)
 
         roads = Road.objects.filter(poly__geo_intersects=line).count()
         self.assertEqual(1, roads)
 
-        roads = Road.objects.filter(poly__geo_intersects={"$geometry": line}).count()
+        roads = Road.objects.filter(
+            poly__geo_intersects={"$geometry": line}).count()
         self.assertEqual(1, roads)
 
         polygon = {"type": "Polygon",
                    "coordinates": [[[40, 5], [40, 6], [41, 6], [41, 5], [40, 5]]]}
-        roads = Road.objects.filter(poly__geo_intersects=polygon["coordinates"]).count()
+        roads = Road.objects.filter(
+            poly__geo_intersects=polygon["coordinates"]).count()
         self.assertEqual(1, roads)
 
         roads = Road.objects.filter(poly__geo_intersects=polygon).count()
         self.assertEqual(1, roads)
 
-        roads = Road.objects.filter(poly__geo_intersects={"$geometry": polygon}).count()
+        roads = Road.objects.filter(
+            poly__geo_intersects={"$geometry": polygon}).count()
         self.assertEqual(1, roads)
 
     def test_aspymongo_with_only(self):
@@ -523,9 +541,9 @@ class GeoQueriesTest(MongoDBTestCase):
             qs.as_pymongo()[0]['location'],
             {u'type': u'Point',
              u'coordinates': [
-                24.946861267089844,
-                60.16311983618494]
-            }
+                 24.946861267089844,
+                 60.16311983618494]
+             }
         )
 
     def test_2dsphere_point_sets_correctly(self):
@@ -534,11 +552,11 @@ class GeoQueriesTest(MongoDBTestCase):
 
         Location.drop_collection()
 
-        Location(loc=[1,2]).save()
+        Location(loc=[1, 2]).save()
         loc = Location.objects.as_pymongo()[0]
         self.assertEqual(loc["loc"], {"type": "Point", "coordinates": [1, 2]})
 
-        Location.objects.update(set__loc=[2,1])
+        Location.objects.update(set__loc=[2, 1])
         loc = Location.objects.as_pymongo()[0]
         self.assertEqual(loc["loc"], {"type": "Point", "coordinates": [2, 1]})
 
@@ -550,11 +568,13 @@ class GeoQueriesTest(MongoDBTestCase):
 
         Location(line=[[1, 2], [2, 2]]).save()
         loc = Location.objects.as_pymongo()[0]
-        self.assertEqual(loc["line"], {"type": "LineString", "coordinates": [[1, 2], [2, 2]]})
+        self.assertEqual(
+            loc["line"], {"type": "LineString", "coordinates": [[1, 2], [2, 2]]})
 
         Location.objects.update(set__line=[[2, 1], [1, 2]])
         loc = Location.objects.as_pymongo()[0]
-        self.assertEqual(loc["line"], {"type": "LineString", "coordinates": [[2, 1], [1, 2]]})
+        self.assertEqual(
+            loc["line"], {"type": "LineString", "coordinates": [[2, 1], [1, 2]]})
 
     def test_geojson_PolygonField(self):
         class Location(Document):
@@ -564,11 +584,14 @@ class GeoQueriesTest(MongoDBTestCase):
 
         Location(poly=[[[40, 5], [40, 6], [41, 6], [40, 5]]]).save()
         loc = Location.objects.as_pymongo()[0]
-        self.assertEqual(loc["poly"], {"type": "Polygon", "coordinates": [[[40, 5], [40, 6], [41, 6], [40, 5]]]})
+        self.assertEqual(loc["poly"], {"type": "Polygon", "coordinates": [
+                         [[40, 5], [40, 6], [41, 6], [40, 5]]]})
 
-        Location.objects.update(set__poly=[[[40, 4], [40, 6], [41, 6], [40, 4]]])
+        Location.objects.update(
+            set__poly=[[[40, 4], [40, 6], [41, 6], [40, 4]]])
         loc = Location.objects.as_pymongo()[0]
-        self.assertEqual(loc["poly"], {"type": "Polygon", "coordinates": [[[40, 4], [40, 6], [41, 6], [40, 4]]]})
+        self.assertEqual(loc["poly"], {"type": "Polygon", "coordinates": [
+                         [[40, 4], [40, 6], [41, 6], [40, 4]]]})
 
 
 if __name__ == '__main__':

@@ -373,7 +373,8 @@ class IndexesTest(unittest.TestCase):
             meta = {
                 'abstract': True,
                 'indexes': ['user_guid'],
-                'allow_inheritance': True
+                'allow_inheritance': True,
+                'auto_create_index': True
             }
 
         class Person(UserBase):
@@ -542,7 +543,8 @@ class IndexesTest(unittest.TestCase):
             meta = {
                 'indexes': [
                     ['categories', 'id']
-                ]
+                ],
+                'auto_create_index': True,
             }
 
             title = StringField(required=True)
@@ -555,41 +557,41 @@ class IndexesTest(unittest.TestCase):
         self.assertEqual(indexes['categories_1__id_1']['key'],
                          [('categories', 1), ('_id', 1)])
 
-    def test_hint(self):
+    # def test_hint(self):
 
-        class BlogPost(Document):
-            tags = ListField(StringField())
-            meta = {
-                'indexes': [
-                    'tags',
-                ],
-            }
+    #     class BlogPost(Document):
+    #         tags = ListField(StringField())
+    #         meta = {
+    #             'indexes': [
+    #                 'tags',
+    #             ],
+    #         }
 
-        BlogPost.drop_collection()
+    #     BlogPost.drop_collection()
 
-        for i in range(0, 10):
-            tags = [("tag %i" % n) for n in range(0, i % 2)]
-            BlogPost(tags=tags).save()
+    #     for i in range(0, 10):
+    #         tags = [("tag %i" % n) for n in range(0, i % 2)]
+    #         BlogPost(tags=tags).save()
 
-        self.assertEqual(BlogPost.objects.count(), 10)
-        self.assertEqual(BlogPost.objects.hint().count(), 10)
+    #     self.assertEqual(BlogPost.objects.count(), 10)
+    #     self.assertEqual(BlogPost.objects.hint().count(), 10)
 
-        # PyMongo 3.0 bug only, works correctly with 2.X and 3.0.1+ versions
-        if pymongo.version != '3.0':
-            self.assertEqual(BlogPost.objects.hint([('tags', 1)]).count(), 10)
+    #     # PyMongo 3.0 bug only, works correctly with 2.X and 3.0.1+ versions
+    #     if pymongo.version != '3.0':
+    #         self.assertEqual(BlogPost.objects.hint([('tags', 1)]).count(), 10)
 
-            self.assertEqual(BlogPost.objects.hint([('ZZ', 1)]).count(), 10)
+    #         self.assertEqual(BlogPost.objects.hint([('ZZ', 1)]).count(), 10)
 
-        if pymongo.version >= '2.8':
-            self.assertEqual(BlogPost.objects.hint('tags').count(), 10)
-        else:
-            def invalid_index():
-                BlogPost.objects.hint('tags').next()
-            self.assertRaises(TypeError, invalid_index)
+    #     if pymongo.version >= '2.8':
+    #         self.assertEqual(BlogPost.objects.hint('tags').count(), 10)
+    #     else:
+    #         def invalid_index():
+    #             BlogPost.objects.hint('tags').next()
+    #         self.assertRaises(TypeError, invalid_index)
 
-        def invalid_index_2():
-            return BlogPost.objects.hint(('tags', 1)).next()
-        self.assertRaises(Exception, invalid_index_2)
+    #     def invalid_index_2():
+    #         return BlogPost.objects.hint(('tags', 1)).next()
+    #     self.assertRaises(Exception, invalid_index_2)
 
     def test_unique(self):
         """Ensure that uniqueness constraints are applied to fields.
@@ -740,7 +742,8 @@ class IndexesTest(unittest.TestCase):
             meta = {
                 'indexes': [
                     {'fields': ['created'], 'expireAfterSeconds': 3600}
-                ]
+                ],
+                'auto_create_index': True
             }
 
         Log.drop_collection()
@@ -889,6 +892,7 @@ class IndexesTest(unittest.TestCase):
             meta = {
                 "indexes": [{'fields': ("provider_ids.foo", "provider_ids.bar"),
                              'sparse': True}],
+                'auto_create_index': True
             }
 
         info = MyDoc.objects._collection.index_information()
@@ -903,6 +907,7 @@ class IndexesTest(unittest.TestCase):
             title = DictField()
             meta = {
                 "indexes": ["$title"],
+                'auto_create_index': True
             }
 
         indexes = Book.objects._collection.index_information()

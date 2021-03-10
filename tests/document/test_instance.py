@@ -47,7 +47,7 @@ class TestDocumentInstance(MongoDBTestCase):
 
         class Person(Document):
             name = StringField()
-            age = IntField()
+            age = IntField(min_value=0)
             job = EmbeddedDocumentField(Job)
 
             non_field = True
@@ -964,6 +964,24 @@ class TestDocumentInstance(MongoDBTestCase):
         assert doc._get_changed_fields() == []
 
         self.assertDbEqual([dict(other_doc.to_mongo()), dict(doc.to_mongo())])
+
+    def test_modify_increment(self):
+        doc1 = self.Person(name="bob", age=10).save()
+
+        n_modified = doc1.modify(inc__age=1)
+        assert n_modified == 1
+        assert doc1.age == 11
+
+        assert self.Person._get_collection().find_one({"_id": doc1.pk})["age"] == 11
+
+    def test_modify_decrement(self):
+        doc1 = self.Person(name="bob", age=10).save()
+
+        n_modified = doc1.modify(dec__age=1)
+        assert n_modified == 1
+        assert doc1.age == 9
+
+        assert self.Person._get_collection().find_one({"_id": doc1.pk})["age"] == 9
 
     def test_modify_with_positional_push(self):
         class Content(EmbeddedDocument):

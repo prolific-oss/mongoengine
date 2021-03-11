@@ -188,7 +188,7 @@ class BaseField:
 
     def prepare_query_value(self, op, value):
         """Prepare a value that is being used in a query for PyMongo."""
-        if op in UPDATE_OPERATORS:
+        if op in UPDATE_OPERATORS and op != "inc":
             self.validate(value)
         return value
 

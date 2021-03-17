@@ -4,11 +4,15 @@ Helper functions, constants, and types to aid with PyMongo v2.7 - v3.x support.
 import pymongo
 from pymongo.errors import OperationFailure
 
+from mongoengine.sessions import get_local_session
+
 _PYMONGO_37 = (3, 7)
+_PYMONGO_311 = (3, 11)
 
 PYMONGO_VERSION = tuple(pymongo.version_tuple[:2])
 
 IS_PYMONGO_GTE_37 = PYMONGO_VERSION >= _PYMONGO_37
+IS_PYMONGO_GTE_311 = PYMONGO_VERSION >= _PYMONGO_311
 
 
 def count_documents(
@@ -31,7 +35,9 @@ def count_documents(
     # count_documents appeared in pymongo 3.7
     if IS_PYMONGO_GTE_37:
         try:
-            return collection.count_documents(filter=filter, **kwargs)
+            return collection.count_documents(
+                filter=filter, session=get_local_session(), **kwargs
+            )
         except OperationFailure:
             # OperationFailure - accounts for some operators that used to work
             # with .count but are no longer working with count_documents (i.e $geoNear, $near, and $nearSphere)
@@ -39,7 +45,7 @@ def count_documents(
             # Keeping this should be reevaluated the day pymongo removes .count entirely
             pass
 
-    cursor = collection.find(filter)
+    cursor = collection.find(filter, session=get_local_session())
     for option, option_value in kwargs.items():
         cursor_method = getattr(cursor, option)
         cursor = cursor_method(option_value)

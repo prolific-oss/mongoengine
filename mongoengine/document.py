@@ -24,6 +24,7 @@ from mongoengine.errors import (
 )
 from mongoengine.pymongo_support import list_collection_names
 from mongoengine.queryset import NotUniqueError, OperationError, QuerySet, transform
+from mongoengine.sessions import get_local_session
 
 __all__ = (
     "Document",
@@ -181,7 +182,15 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
     @classmethod
     def _get_db(cls):
         """Some Model using other db_alias"""
-        return get_db(cls._meta.get("db_alias", DEFAULT_CONNECTION_NAME))
+        return get_db(cls._get_db_alias())
+
+    @classmethod
+    def _get_local_session(cls):
+        return get_local_session(cls._get_db_alias())
+
+    @classmethod
+    def _get_db_alias(cls):
+        return cls._meta.get("db_alias", DEFAULT_CONNECTION_NAME)
 
     @classmethod
     def _disconnect(cls):
@@ -252,7 +261,9 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         if max_documents:
             opts["max"] = max_documents
 
-        return db.create_collection(collection_name, **opts)
+        return db.create_collection(
+            collection_name, session=cls._get_local_session(), **opts
+        )
 
     def to_mongo(self, *args, **kwargs):
         data = super().to_mongo(*args, **kwargs)
@@ -460,7 +471,9 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
                 if raw_object:
                     return doc["_id"]
 
-            object_id = wc_collection.insert_one(doc).inserted_id
+            object_id = wc_collection.insert_one(
+                doc, session=self._get_local_session()
+            ).inserted_id
 
         return object_id
 
@@ -518,7 +531,10 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
             upsert = save_condition is None
             with set_write_concern(collection, write_concern) as wc_collection:
                 last_error = wc_collection.update_one(
-                    select_dict, update_doc, upsert=upsert
+                    select_dict,
+                    update_doc,
+                    upsert=upsert,
+                    session=self._get_local_session(),
                 ).raw_result
             if not upsert and last_error["n"] == 0:
                 raise SaveConditionError(
@@ -820,7 +836,9 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
             )
         cls._collection = None
         db = cls._get_db()
-        db.drop_collection(coll_name)
+        db.drop_collection(
+            coll_name
+        )  # MongoDB 4.4 can not run a drop in multi-document transaction
 
     @classmethod
     def create_index(cls, keys, background=False, **kwargs):

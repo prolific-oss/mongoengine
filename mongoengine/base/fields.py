@@ -506,7 +506,7 @@ class ObjectIdField(BaseField):
     def prepare_query_value(self, op, value):
         return self.to_mongo(value)
 
-    def validate(self, value):
+    def validate(self, value, clean=True):
         try:
             ObjectId(str(value))
         except Exception:

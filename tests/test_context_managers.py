@@ -8,15 +8,17 @@ from mongoengine.context_managers import (
     no_dereference,
     no_sub_classes,
     query_counter,
+    run_in_transaction,
     set_read_write_concern,
     set_write_concern,
     switch_collection,
     switch_db,
 )
 from mongoengine.pymongo_support import count_documents
+from mongoengine.sessions import get_local_session
 
 
-class TestContextManagers:
+class TestContextManagers(unittest.TestCase):
     def test_set_write_concern(self):
         connect("mongoenginetest")
 
@@ -63,6 +65,73 @@ class TestContextManagers:
         assert original_read_concern.document == collection.read_concern.document
         assert original_write_concern.document == collection.write_concern.document
 
+    def test_run_in_transaction_context_manager(self):
+        connect("mongoenginetest")
+        register_connection("testdb-1", "mongoenginetest2")
+
+        class Group(Document):
+            name = StringField()
+
+        Group.drop_collection()
+
+        Group(name="hello - outside").save()
+        assert 1 == Group.objects.count()
+
+        with run_in_transaction():
+
+            Group(name="hello - inside").save()
+            assert 2 == Group.objects.count()
+
+        assert 2 == Group.objects.count()
+        assert get_local_session() is None
+
+        Group.drop_collection()
+
+        try:
+            with run_in_transaction():
+
+                Group(name="hello - inside").save()
+                assert 1 == Group.objects.count()
+
+                raise Exception("test")
+        except Exception as e:
+            assert str(e) == "test"
+
+        assert 0 == Group.objects.count()
+        assert get_local_session() is None
+
+    def test_run_in_transaction_context_decorator(self):
+        connect("mongoenginetest")
+        register_connection("testdb-1", "mongoenginetest2")
+
+        class Group(Document):
+            name = StringField()
+
+        Group.drop_collection()
+
+        @run_in_transaction()
+        def create_group(name):
+            Group(name=name).save()
+            assert 1 == Group.objects.count()
+
+        create_group("hello - inside")
+        assert 1 == Group.objects.count()
+
+        @run_in_transaction()
+        def create_group_and_then_fail(name):
+            Group(name=name).save()
+            raise Exception("test")
+
+        Group.drop_collection()
+
+        try:
+            create_group_and_then_fail("hello - inside")
+        except Exception as e:
+            assert str(e) == "test"
+
+        assert 0 == Group.objects.count()
+        assert get_local_session() is None
+
     def test_switch_db_context_manager(self):
         connect("mongoenginetest")
         register_connection("testdb-1", "mongoenginetest2")
@@ -76,7 +145,6 @@ class TestContextManagers:
         assert 1 == Group.objects.count()
 
         with switch_db(Group, "testdb-1") as Group:
-
             assert 0 == Group.objects.count()
 
             Group(name="hello").save()
@@ -104,7 +172,6 @@ class TestContextManagers:
         assert 1 == Group.objects.count()
 
         with switch_collection(Group, "group1") as Group:
-
             assert 0 == Group.objects.count()
 
             Group(name="hello - group1").save()

@@ -855,7 +855,9 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         index_spec["background"] = background
         index_spec.update(kwargs)
 
-        return cls._get_collection().create_index(fields, **index_spec)
+        return cls._get_collection().create_index(
+            fields, session=cls._get_local_session(), **index_spec
+        )
 
     @classmethod
     def ensure_index(cls, key_or_list, background=False, **kwargs):

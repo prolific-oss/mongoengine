@@ -44,8 +44,8 @@ Available signals include:
 
 `post_save`
   Called within :meth:`~mongoengine.Document.save` after most actions
-  (validation, insert/update, and cascades, but not clearing dirty flags) have 
-  completed successfully.  Passed the additional boolean keyword argument 
+  (validation, insert/update, and cascades, but not clearing dirty flags) have
+  completed successfully.  Passed the additional boolean keyword argument
   `created` to indicate if the save was an insert or an update.
 
 `pre_delete`
@@ -112,6 +112,10 @@ handlers within your subclass::
 
     signals.pre_save.connect(Author.pre_save, sender=Author)
     signals.post_save.connect(Author.post_save, sender=Author)
+
+.. warning::
+
+    Note that EmbeddedDocument only supports pre/post_init signals. pre/post_save, etc should be attached to Document's class only. Attaching pre_save to an EmbeddedDocument is ignored silently.
 
 Finally, you can also use this small decorator to quickly create a number of
 signals and attach them to your :class:`~mongoengine.Document` or

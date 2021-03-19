@@ -1,12 +1,24 @@
+from contextlib import contextmanager
+
+from pymongo.read_concern import ReadConcern
+from pymongo.write_concern import WriteConcern
+
 from mongoengine.common import _import_class
 from mongoengine.connection import DEFAULT_CONNECTION_NAME, get_db
+from mongoengine.pymongo_support import count_documents
+
+__all__ = (
+    "switch_db",
+    "switch_collection",
+    "no_dereference",
+    "no_sub_classes",
+    "query_counter",
+    "set_write_concern",
+    "set_read_write_concern",
+)
 
 
-__all__ = ('switch_db', 'switch_collection', 'no_dereference',
-           'no_sub_classes', 'query_counter')
-
-
-class switch_db(object):
+class switch_db:
     """switch_db alias context manager.
 
     Example ::
@@ -33,21 +45,21 @@ class switch_db(object):
         self.cls = cls
         self.collection = cls._get_collection()
         self.db_alias = db_alias
-        self.ori_db_alias = cls._meta.get('db_alias', DEFAULT_CONNECTION_NAME)
+        self.ori_db_alias = cls._meta.get("db_alias", DEFAULT_CONNECTION_NAME)
 
     def __enter__(self):
         """Change the db_alias and clear the cached collection."""
-        self.cls._meta['db_alias'] = self.db_alias
+        self.cls._meta["db_alias"] = self.db_alias
         self.cls._collection = None
         return self.cls
 
     def __exit__(self, t, value, traceback):
         """Reset the db_alias and collection."""
-        self.cls._meta['db_alias'] = self.ori_db_alias
+        self.cls._meta["db_alias"] = self.ori_db_alias
         self.cls._collection = self.collection
 
 
-class switch_collection(object):
+class switch_collection:
     """switch_collection alias context manager.
 
     Example ::
@@ -89,7 +101,7 @@ class switch_collection(object):
         self.cls._get_collection_name = self.ori_get_collection_name
 
 
-class no_dereference(object):
+class no_dereference:
     """no_dereference context manager.
 
     Turns off all dereferencing in Documents for the duration of the context
@@ -106,14 +118,15 @@ class no_dereference(object):
         """
         self.cls = cls
 
-        ReferenceField = _import_class('ReferenceField')
-        GenericReferenceField = _import_class('GenericReferenceField')
-        ComplexBaseField = _import_class('ComplexBaseField')
+        ReferenceField = _import_class("ReferenceField")
+        GenericReferenceField = _import_class("GenericReferenceField")
+        ComplexBaseField = _import_class("ComplexBaseField")
 
-        self.deref_fields = [k for k, v in self.cls._fields.iteritems()
-                             if isinstance(v, (ReferenceField,
-                                               GenericReferenceField,
-                                               ComplexBaseField))]
+        self.deref_fields = [
+            k
+            for k, v in self.cls._fields.items()
+            if isinstance(v, (ReferenceField, GenericReferenceField, ComplexBaseField))
+        ]
 
     def __enter__(self):
         """Change the objects default and _auto_dereference values."""
@@ -128,7 +141,7 @@ class no_dereference(object):
         return self.cls
 
 
-class no_sub_classes(object):
+class no_sub_classes:
     """no_sub_classes context manager.
 
     Only returns instances of this class and no sub (inherited) classes::
@@ -143,75 +156,122 @@ class no_sub_classes(object):
         :param cls: the class to turn querying sub classes on
         """
         self.cls = cls
+        self.cls_initial_subclasses = None
 
     def __enter__(self):
         """Change the objects default and _auto_dereference values."""
-        self.cls._all_subclasses = self.cls._subclasses
-        self.cls._subclasses = (self.cls,)
+        self.cls_initial_subclasses = self.cls._subclasses
+        self.cls._subclasses = (self.cls._class_name,)
         return self.cls
 
     def __exit__(self, t, value, traceback):
         """Reset the default and _auto_dereference values."""
-        self.cls._subclasses = self.cls._all_subclasses
-        delattr(self.cls, '_all_subclasses')
-        return self.cls
+        self.cls._subclasses = self.cls_initial_subclasses
 
 
-class query_counter(object):
-    """Query_counter context manager to get the number of queries."""
+class query_counter:
+    """Query_counter context manager to get the number of queries.
+    This works by updating the `profiling_level` of the database so that all queries get logged,
+    resetting the db.system.profile collection at the beginning of the context and counting the new entries.
 
-    def __init__(self):
-        """Construct the query_counter."""
-        self.counter = 0
-        self.db = get_db()
+    This was designed for debugging purpose. In fact it is a global counter so queries issued by other threads/processes
+    can interfere with it
 
-    def __enter__(self):
-        """On every with block we need to drop the profile collection."""
+    Be aware that:
+    - Iterating over large amount of documents (>101) makes pymongo issue `getmore` queries to fetch the next batch of
+        documents (https://docs.mongodb.com/manual/tutorial/iterate-a-cursor/#cursor-batches)
+    - Some queries are ignored by default by the counter (killcursors, db.system.indexes)
+    """
+
+    def __init__(self, alias=DEFAULT_CONNECTION_NAME):
+        """Construct the query_counter"""
+        self.db = get_db(alias=alias)
+        self.initial_profiling_level = None
+        self._ctx_query_counter = 0  # number of queries issued by the context
+
+        self._ignored_query = {
+            "ns": {"$ne": "%s.system.indexes" % self.db.name},
+            "op": {"$ne": "killcursors"},  # MONGODB < 3.2
+            "command.killCursors": {"$exists": False},  # MONGODB >= 3.2
+        }
+
+    def _turn_on_profiling(self):
+        self.initial_profiling_level = self.db.profiling_level()
         self.db.set_profiling_level(0)
         self.db.system.profile.drop()
         self.db.set_profiling_level(2)
+
+    def _resets_profiling(self):
+        self.db.set_profiling_level(self.initial_profiling_level)
+
+    def __enter__(self):
+        self._turn_on_profiling()
         return self
 
     def __exit__(self, t, value, traceback):
-        """Reset the profiling level."""
-        self.db.set_profiling_level(0)
+        self._resets_profiling()
 
     def __eq__(self, value):
-        """== Compare querycounter."""
         counter = self._get_count()
         return value == counter
 
     def __ne__(self, value):
-        """!= Compare querycounter."""
         return not self.__eq__(value)
 
     def __lt__(self, value):
-        """< Compare querycounter."""
         return self._get_count() < value
 
     def __le__(self, value):
-        """<= Compare querycounter."""
         return self._get_count() <= value
 
     def __gt__(self, value):
-        """> Compare querycounter."""
         return self._get_count() > value
 
     def __ge__(self, value):
-        """>= Compare querycounter."""
         return self._get_count() >= value
 
     def __int__(self):
-        """int representation."""
         return self._get_count()
 
     def __repr__(self):
         """repr query_counter as the number of queries."""
-        return u"%s" % self._get_count()
+        return "%s" % self._get_count()
 
     def _get_count(self):
-        """Get the number of queries."""
-        ignore_query = {'ns': {'$ne': '%s.system.indexes' % self.db.name}}
-        count = self.db.system.profile.find(ignore_query).count() - self.counter
-        self.counter += 1
+        """Get the number of queries by counting the current number of entries in db.system.profile
+        and substracting the queries issued by this context. In fact everytime this is called, 1 query is
+        issued so we need to balance that
+        """
+        count = (
+            count_documents(self.db.system.profile, self._ignored_query)
+            - self._ctx_query_counter
+        )
+        self._ctx_query_counter += (
+            1  # Account for the query we just issued to gather the information
+        )
         return count
+
+
+@contextmanager
+def set_write_concern(collection, write_concerns):
+    combined_concerns = dict(collection.write_concern.document.items())
+    combined_concerns.update(write_concerns)
+    yield collection.with_options(write_concern=WriteConcern(**combined_concerns))
+
+
+@contextmanager
+def set_read_write_concern(collection, write_concerns, read_concerns):
+    combined_write_concerns = dict(collection.write_concern.document.items())
+
+    if write_concerns is not None:
+        combined_write_concerns.update(write_concerns)
+
+    combined_read_concerns = dict(collection.read_concern.document.items())
+
+    if read_concerns is not None:
+        combined_read_concerns.update(read_concerns)
+
+    yield collection.with_options(
+        write_concern=WriteConcern(**combined_write_concerns),
+        read_concern=ReadConcern(**combined_read_concerns),
+    )

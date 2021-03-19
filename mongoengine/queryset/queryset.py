@@ -1,11 +1,22 @@
-import six
-
 from mongoengine.errors import OperationError
-from mongoengine.queryset.base import (BaseQuerySet, CASCADE, DENY, DO_NOTHING,
-                                       NULLIFY, PULL)
+from mongoengine.queryset.base import (
+    BaseQuerySet,
+    CASCADE,
+    DENY,
+    DO_NOTHING,
+    NULLIFY,
+    PULL,
+)
 
-__all__ = ('QuerySet', 'QuerySetNoCache', 'DO_NOTHING', 'NULLIFY', 'CASCADE',
-           'DENY', 'PULL')
+__all__ = (
+    "QuerySet",
+    "QuerySetNoCache",
+    "DO_NOTHING",
+    "NULLIFY",
+    "CASCADE",
+    "DENY",
+    "PULL",
+)
 
 # The maximum number of items to display in a QuerySet.__repr__
 REPR_OUTPUT_SIZE = 20
@@ -57,12 +68,12 @@ class QuerySet(BaseQuerySet):
     def __repr__(self):
         """Provide a string representation of the QuerySet"""
         if self._iter:
-            return '.. queryset mid-iteration ..'
+            return ".. queryset mid-iteration .."
 
         self._populate_cache()
-        data = self._result_cache[:REPR_OUTPUT_SIZE + 1]
+        data = self._result_cache[: REPR_OUTPUT_SIZE + 1]
         if len(data) > REPR_OUTPUT_SIZE:
-            data[-1] = '...(remaining elements truncated)...'
+            data[-1] = "...(remaining elements truncated)..."
         return repr(data)
 
     def _iter_results(self):
@@ -89,10 +100,10 @@ class QuerySet(BaseQuerySet):
                 yield self._result_cache[pos]
                 pos += 1
 
-            # Raise StopIteration if we already established there were no more
+            # return if we already established there were no more
             # docs in the db cursor.
             if not self._has_more:
-                raise StopIteration
+                return
 
             # Otherwise, populate more of the cache and repeat.
             if len(self._result_cache) <= pos:
@@ -114,8 +125,8 @@ class QuerySet(BaseQuerySet):
         # Pull in ITER_CHUNK_SIZE docs from the database and store them in
         # the result cache.
         try:
-            for _ in six.moves.range(ITER_CHUNK_SIZE):
-                self._result_cache.append(self.next())
+            for _ in range(ITER_CHUNK_SIZE):
+                self._result_cache.append(next(self))
         except StopIteration:
             # Getting this exception means there are no more docs in the
             # db cursor. Set _has_more to False so that we can use that
@@ -130,52 +141,43 @@ class QuerySet(BaseQuerySet):
             getting the count
         """
         if with_limit_and_skip is False:
-            return super(QuerySet, self).count(with_limit_and_skip)
+            return super().count(with_limit_and_skip)
 
         if self._len is None:
-            self._len = super(QuerySet, self).count(with_limit_and_skip)
+            # cache the length
+            self._len = super().count(with_limit_and_skip)
 
         return self._len
 
     def no_cache(self):
-        """Convert to a non-caching queryset
-
-        .. versionadded:: 0.8.3 Convert to non caching queryset
-        """
+        """Convert to a non-caching queryset"""
         if self._result_cache is not None:
-            raise OperationError('QuerySet already cached')
+            raise OperationError("QuerySet already cached")
 
-        return self._clone_into(QuerySetNoCache(self._document,
-                                                self._collection))
+        return self._clone_into(QuerySetNoCache(self._document, self._collection))
 
 
 class QuerySetNoCache(BaseQuerySet):
     """A non caching QuerySet"""
 
     def cache(self):
-        """Convert to a caching queryset
-
-        .. versionadded:: 0.8.3 Convert to caching queryset
-        """
+        """Convert to a caching queryset"""
         return self._clone_into(QuerySet(self._document, self._collection))
 
     def __repr__(self):
-        """Provides the string representation of the QuerySet
-
-        .. versionchanged:: 0.6.13 Now doesnt modify the cursor
-        """
+        """Provides the string representation of the QuerySet"""
         if self._iter:
-            return '.. queryset mid-iteration ..'
+            return ".. queryset mid-iteration .."
 
         data = []
-        for _ in six.moves.range(REPR_OUTPUT_SIZE + 1):
+        for _ in range(REPR_OUTPUT_SIZE + 1):
             try:
-                data.append(self.next())
+                data.append(next(self))
             except StopIteration:
                 break
 
         if len(data) > REPR_OUTPUT_SIZE:
-            data[-1] = '...(remaining elements truncated)...'
+            data[-1] = "...(remaining elements truncated)..."
 
         self.rewind()
         return repr(data)
@@ -186,10 +188,3 @@ class QuerySetNoCache(BaseQuerySet):
             queryset = self.clone()
         queryset.rewind()
         return queryset
-
-
-class QuerySetNoDeRef(QuerySet):
-    """Special no_dereference QuerySet"""
-
-    def __dereference(items, max_depth=1, instance=None, name=None):
-        return items

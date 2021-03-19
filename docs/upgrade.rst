@@ -6,6 +6,11 @@ Development
 ***********
 (Fill this out whenever you introduce breaking changes to MongoEngine)
 
+URLField's constructor no longer takes `verify_exists`
+
+0.15.0
+******
+
 0.14.0
 ******
 This release includes a few bug fixes and a significant code cleanup. The most
@@ -47,7 +52,7 @@ rename its occurrences.
 This release includes a major rehaul of MongoEngine's code quality and
 introduces a few breaking changes. It also touches many different parts of
 the package and although all the changes have been tested and scrutinized,
-you're encouraged to thorougly test the upgrade.
+you're encouraged to thoroughly test the upgrade.
 
 First breaking change involves renaming `ConnectionError` to `MongoEngineConnectionError`.
 If you import or catch this exception, you'll need to rename it in your code.
@@ -80,10 +85,10 @@ by default from now on.
 
 The 0.8.7 package on pypi was corrupted.  If upgrading from 0.8.7 to 0.9.0 please follow: ::
 
-    pip uninstall pymongo
-    pip uninstall mongoengine
-    pip install pymongo==2.8
-    pip install mongoengine
+    python -m pip uninstall pymongo
+    python -m pip uninstall mongoengine
+    python -m pip install pymongo==2.8
+    python -m pip install mongoengine
 
 0.8.7
 *****
@@ -148,7 +153,7 @@ inherited classes like so: ::
 
     # 4. Remove indexes
     info = collection.index_information()
-    indexes_to_drop = [key for key, value in info.iteritems()
+    indexes_to_drop = [key for key, value in info.items()
                        if '_types' in dict(value['key'])]
     for index in indexes_to_drop:
         collection.drop_index(index)

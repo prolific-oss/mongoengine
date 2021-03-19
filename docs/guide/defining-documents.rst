@@ -76,6 +76,7 @@ are as follows:
 * :class:`~mongoengine.fields.EmailField`
 * :class:`~mongoengine.fields.EmbeddedDocumentField`
 * :class:`~mongoengine.fields.EmbeddedDocumentListField`
+* :class:`~mongoengine.fields.EnumField`
 * :class:`~mongoengine.fields.FileField`
 * :class:`~mongoengine.fields.FloatField`
 * :class:`~mongoengine.fields.GenericEmbeddedDocumentField`
@@ -85,6 +86,7 @@ are as follows:
 * :class:`~mongoengine.fields.ImageField`
 * :class:`~mongoengine.fields.IntField`
 * :class:`~mongoengine.fields.ListField`
+* :class:`~mongoengine.fields.LongField`
 * :class:`~mongoengine.fields.MapField`
 * :class:`~mongoengine.fields.ObjectIdField`
 * :class:`~mongoengine.fields.ReferenceField`
@@ -155,7 +157,7 @@ arguments can be set on all fields:
     An iterable (e.g. list, tuple or set) of choices to which the value of this
     field should be limited.
 
-    Can be either be a nested tuples of value (stored in mongo) and a
+    Can either be nested tuples of value (stored in mongo) and a
     human readable key ::
 
         SIZE = (('S', 'Small'),
@@ -174,6 +176,21 @@ arguments can be set on all fields:
 
         class Shirt(Document):
             size = StringField(max_length=3, choices=SIZE)
+
+:attr:`validation` (Optional)
+    A callable to validate the value of the field.
+    The callable takes the value as parameter and should raise a ValidationError
+    if validation fails
+
+    e.g ::
+
+        def _not_empty(val):
+            if not val:
+                raise ValidationError('value can not be empty')
+
+        class Person(Document):
+            name = StringField(validation=_not_empty)
+
 
 :attr:`**kwargs` (Optional)
     You can supply additional metadata as arbitrary additional keyword
@@ -336,7 +353,7 @@ Its value can take any of the following constants:
   Deletion is denied if there still exist references to the object being
   deleted.
 :const:`mongoengine.NULLIFY`
-  Any object's fields still referring to the object being deleted are removed
+  Any object's fields still referring to the object being deleted are set to None
   (using MongoDB's "unset" operation), effectively nullifying the relationship.
 :const:`mongoengine.CASCADE`
   Any object containing fields that are referring to the object being deleted
@@ -410,28 +427,15 @@ either a single field name, or a list or tuple of field names::
         first_name = StringField()
         last_name = StringField(unique_with='first_name')
 
-Skipping Document validation on save
-------------------------------------
-You can also skip the whole document validation process by setting
-``validate=False`` when calling the :meth:`~mongoengine.document.Document.save`
-method::
-
-    class Recipient(Document):
-        name = StringField()
-        email = EmailField()
-
-    recipient = Recipient(name='admin', email='root@localhost')
-    recipient.save()               # will raise a ValidationError while
-    recipient.save(validate=False) # won't
 
 Document collections
 ====================
 Document classes that inherit **directly** from :class:`~mongoengine.Document`
 will have their own **collection** in the database. The name of the collection
-is by default the name of the class, converted to lowercase (so in the example
-above, the collection would be called `page`). If you need to change the name
-of the collection (e.g. to use MongoEngine with an existing database), then
-create a class dictionary attribute called :attr:`meta` on your document, and
+is by default the name of the class converted to snake_case (e.g if your Document class
+is named `CompanyUser`, the corresponding collection would be `company_user`). If you need
+to change the name of the collection (e.g. to use MongoEngine with an existing database),
+then create a class dictionary attribute called :attr:`meta` on your document, and
 set :attr:`collection` to the name of the collection that you want your
 document class to use::
 
@@ -492,7 +496,9 @@ the field name with a **#**::
             ]
         }
 
-If a dictionary is passed then the following options are available:
+If a dictionary is passed then additional options become available. Valid options include,
+but are not limited to:
+
 
 :attr:`fields` (Default: None)
     The fields to index. Specified in the same format as described above.
@@ -513,8 +519,15 @@ If a dictionary is passed then the following options are available:
     Allows you to automatically expire data from a collection by setting the
     time in seconds to expire the a field.
 
+:attr:`name` (Optional)
+    Allows you to specify a name for the index
+
+:attr:`collation` (Optional)
+    Allows to create case insensitive indexes (MongoDB v3.4+ only)
+
 .. note::
 
+    Additional options are forwarded as **kwargs to pymongo's create_index method.
     Inheritance adds extra fields indices see: :ref:`document-inheritance`.
 
 Global index default options
@@ -526,15 +539,15 @@ There are a few top level defaults for all indexes that can be set::
         title = StringField()
         rating = StringField()
         meta = {
-            'index_options': {},
+            'index_opts': {},
             'index_background': True,
-            'index_drop_dups': True,
-            'index_cls': False
+            'index_cls': False,
+            'auto_create_index': True,
         }
 
 
-:attr:`index_options` (Optional)
-    Set any default index options - see the `full options list <http://docs.mongodb.org/manual/reference/method/db.collection.ensureIndex/#db.collection.ensureIndex>`_
+:attr:`index_opts` (Optional)
+    Set any default index options - see the `full options list <https://docs.mongodb.com/manual/reference/method/db.collection.createIndex/#db.collection.createIndex>`_
 
 :attr:`index_background` (Optional)
     Set the default value for if an index should be indexed in the background
@@ -542,11 +555,11 @@ There are a few top level defaults for all indexes that can be set::
 :attr:`index_cls` (Optional)
     A way to turn off a specific index for _cls.
 
-:attr:`index_drop_dups` (Optional)
-    Set the default value for if an index should drop duplicates
-
-.. note:: Since MongoDB 3.0 drop_dups is not supported anymore. Raises a Warning
-    and has no effect
+:attr:`auto_create_index` (Optional)
+    When this is True (default), MongoEngine will ensure that the correct
+    indexes exist in MongoDB each time a command is run. This can be disabled
+    in systems where indexes are managed separately. Disabling this will improve
+    performance.
 
 
 Compound Indexes and Indexing sub documents
@@ -683,11 +696,16 @@ subsequent calls to :meth:`~mongoengine.queryset.QuerySet.order_by`. ::
 Shard keys
 ==========
 
-If your collection is sharded, then you need to specify the shard key as a tuple,
-using the :attr:`shard_key` attribute of :attr:`~mongoengine.Document.meta`.
-This ensures that the shard key is sent with the query when calling the
-:meth:`~mongoengine.document.Document.save` or
-:meth:`~mongoengine.document.Document.update` method on an existing
+If your collection is sharded by multiple keys, then you can improve shard
+routing (and thus the performance of your application) by specifying the shard
+key, using the :attr:`shard_key` attribute of
+:attr:`~mongoengine.Document.meta`. The shard key should be defined as a tuple.
+
+This ensures that the full shard key is sent with the query when calling
+methods such as :meth:`~mongoengine.document.Document.save`,
+:meth:`~mongoengine.document.Document.update`,
+:meth:`~mongoengine.document.Document.modify`, or
+:meth:`~mongoengine.document.Document.delete` on an existing
 :class:`~mongoengine.Document` instance::
 
     class LogEntry(Document):
@@ -697,7 +715,8 @@ This ensures that the shard key is sent with the query when calling the
         data = StringField()
 
         meta = {
-            'shard_key': ('machine', 'timestamp',)
+            'shard_key': ('machine', 'timestamp'),
+            'indexes': ('machine', 'timestamp'),
         }
 
 .. _document-inheritance:
@@ -707,7 +726,7 @@ Document inheritance
 
 To create a specialised type of a :class:`~mongoengine.Document` you have
 defined, you may subclass it and add any extra fields or methods you may need.
-As this is new class is not a direct subclass of
+As this new class is not a direct subclass of
 :class:`~mongoengine.Document`, it will not be stored in its own collection; it
 will use the same collection as its superclass uses. This allows for more
 convenient and efficient retrieval of related documents -- all you need do is
@@ -726,6 +745,30 @@ document.::
 
 .. note:: From 0.8 onwards :attr:`allow_inheritance` defaults
           to False, meaning you must set it to True to use inheritance.
+
+          Setting :attr:`allow_inheritance` to True should also be used in
+          :class:`~mongoengine.EmbeddedDocument` class in case you need to subclass it
+
+When it comes to querying using :attr:`.objects()`, querying `Page.objects()` will query
+both `Page` and `DatedPage` whereas querying `DatedPage` will only query the `DatedPage` documents.
+Behind the scenes, MongoEngine deals with inheritance by adding a :attr:`_cls` attribute that contains
+the class name in every documents. When a document is loaded, MongoEngine checks
+it's :attr:`_cls` attribute and use that class to construct the instance.::
+
+    Page(title='a funky title').save()
+    DatedPage(title='another title', date=datetime.utcnow()).save()
+
+    print(Page.objects().count())         # 2
+    print(DatedPage.objects().count())    # 1
+
+    # print documents in their native form
+    # we remove 'id' to avoid polluting the output with unnecessary detail
+    qs = Page.objects.exclude('id').as_pymongo()
+    print(list(qs))
+    # [
+    #   {'_cls': u 'Page', 'title': 'a funky title'},
+    #   {'_cls': u 'Page.DatedPage', 'title': u 'another title', 'date': datetime.datetime(2019, 12, 13, 20, 16, 59, 993000)}
+    # ]
 
 Working with existing data
 --------------------------

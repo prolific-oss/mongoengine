@@ -4,9 +4,11 @@
 Connecting to MongoDB
 =====================
 
-To connect to a running instance of :program:`mongod`, use the
-:func:`~mongoengine.connect` function. The first argument is the name of the
-database to connect to::
+Connections in MongoEngine are registered globally and are identified with aliases.
+If no `alias` is provided during the connection, it will use "default" as alias.
+
+To connect to a running instance of :program:`mongod`, use the :func:`~mongoengine.connect`
+function. The first argument is the name of the database to connect to::
 
     from mongoengine import connect
     connect('project1')
@@ -18,16 +20,18 @@ provide the :attr:`host` and :attr:`port` arguments to
 
     connect('project1', host='192.168.1.35', port=12345)
 
-If the database requires authentication, :attr:`username` and :attr:`password`
-arguments should be provided::
+If the database requires authentication, :attr:`username`, :attr:`password`
+and :attr:`authentication_source` arguments should be provided::
 
-    connect('project1', username='webapp', password='pwd123')
+    connect('project1', username='webapp', password='pwd123', authentication_source='admin')
 
 URI style connections are also supported -- just supply the URI as
 the :attr:`host` to
 :func:`~mongoengine.connect`::
 
     connect('project1', host='mongodb://localhost/database_name')
+
+.. note:: URI containing SRV records (e.g mongodb+srv://server.example.com/) can be used as well as the :attr:`host`
 
 .. note:: Database, username and password from URI string overrides
     corresponding parameters in :func:`~mongoengine.connect`: ::
@@ -40,7 +44,10 @@ the :attr:`host` to
         )
 
     will establish connection to ``production`` database using
-    ``admin`` username and ``qwerty`` password.
+    ``admin`` username and ``12345`` password.
+
+.. note:: Calling :func:`~mongoengine.connect` without argument will establish
+    a connection to the "test" database by default
 
 Replica Sets
 ============
@@ -71,27 +78,60 @@ is used.
 In the background this uses :func:`~mongoengine.register_connection` to
 store the data and you can register all aliases up front if required.
 
-Individual documents can also support multiple databases by providing a
+Documents defined in different database
+---------------------------------------
+Individual documents can be attached to different databases by providing a
 `db_alias` in their meta data. This allows :class:`~pymongo.dbref.DBRef`
 objects to point across databases and collections. Below is an example schema,
 using 3 different databases to store data::
 
+        connect(alias='user-db-alias', db='user-db')
+        connect(alias='book-db-alias', db='book-db')
+        connect(alias='users-books-db-alias', db='users-books-db')
+
         class User(Document):
             name = StringField()
 
-            meta = {'db_alias': 'user-db'}
+            meta = {'db_alias': 'user-db-alias'}
 
         class Book(Document):
             name = StringField()
 
-            meta = {'db_alias': 'book-db'}
+            meta = {'db_alias': 'book-db-alias'}
 
         class AuthorBooks(Document):
             author = ReferenceField(User)
             book = ReferenceField(Book)
 
-            meta = {'db_alias': 'users-books-db'}
+            meta = {'db_alias': 'users-books-db-alias'}
 
+
+Disconnecting an existing connection
+------------------------------------
+The function :func:`~mongoengine.disconnect` can be used to
+disconnect a particular connection. This can be used to change a
+connection globally::
+
+        from mongoengine import connect, disconnect
+        connect('a_db', alias='db1')
+
+        class User(Document):
+            name = StringField()
+            meta = {'db_alias': 'db1'}
+
+        disconnect(alias='db1')
+
+        connect('another_db', alias='db1')
+
+.. note:: Calling :func:`~mongoengine.disconnect` without argument
+    will disconnect the "default" connection
+
+.. note:: Since connections gets registered globally, it is important
+    to use the `disconnect` function from MongoEngine and not the
+    `disconnect()` method of an existing connection (pymongo.MongoClient)
+
+.. note:: :class:`~mongoengine.Document` are caching the pymongo collection.
+    using `disconnect` ensures that it gets cleaned as well
 
 Context Managers
 ================
@@ -119,7 +159,7 @@ access to the same User document across databases::
 
 Switch Collection
 -----------------
-The :class:`~mongoengine.context_managers.switch_collection` context manager
+The :func:`~mongoengine.context_managers.switch_collection` context manager
 allows you to change the collection for a given class allowing quick and easy
 access to the same Group document across collection::
 

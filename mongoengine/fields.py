@@ -1,17 +1,19 @@
 import datetime
 import decimal
+import inspect
 import itertools
 import re
 import socket
 import time
 import uuid
-import warnings
+from io import BytesIO
 from operator import itemgetter
 
 from bson import Binary, DBRef, ObjectId, SON
+from bson.int64 import Int64
 import gridfs
 import pymongo
-import six
+from pymongo import ReturnDocument
 
 try:
     import dateutil
@@ -20,20 +22,24 @@ except ImportError:
 else:
     import dateutil.parser
 
-try:
-    from bson.int64 import Int64
-except ImportError:
-    Int64 = long
 
-from mongoengine.base import (BaseDocument, BaseField, ComplexBaseField,
-                              GeoJsonBaseField, LazyReference, ObjectIdField,
-                              get_document)
+from mongoengine.base import (
+    BaseDocument,
+    BaseField,
+    ComplexBaseField,
+    GeoJsonBaseField,
+    LazyReference,
+    ObjectIdField,
+    get_document,
+)
+from mongoengine.base.utils import LazyRegexCompiler
 from mongoengine.common import _import_class
 from mongoengine.connection import DEFAULT_CONNECTION_NAME, get_db
 from mongoengine.document import Document, EmbeddedDocument
 from mongoengine.errors import DoesNotExist, InvalidQueryError, ValidationError
-from mongoengine.python_support import StringIO
-from mongoengine.queryset import DO_NOTHING, QuerySet
+from mongoengine.queryset import DO_NOTHING
+from mongoengine.queryset.base import BaseQuerySet
+from mongoengine.queryset.transform import STRING_OPERATORS
 
 try:
     from PIL import Image, ImageOps
@@ -41,164 +47,203 @@ except ImportError:
     Image = None
     ImageOps = None
 
+
 __all__ = (
-    'StringField', 'URLField', 'EmailField', 'IntField', 'LongField',
-    'FloatField', 'DecimalField', 'BooleanField', 'DateTimeField',
-    'ComplexDateTimeField', 'EmbeddedDocumentField', 'ObjectIdField',
-    'GenericEmbeddedDocumentField', 'DynamicField', 'ListField',
-    'SortedListField', 'EmbeddedDocumentListField', 'DictField',
-    'MapField', 'ReferenceField', 'CachedReferenceField',
-    'LazyReferenceField', 'GenericLazyReferenceField',
-    'GenericReferenceField', 'BinaryField', 'GridFSError', 'GridFSProxy',
-    'FileField', 'ImageGridFsProxy', 'ImproperlyConfigured', 'ImageField',
-    'GeoPointField', 'PointField', 'LineStringField', 'PolygonField',
-    'SequenceField', 'UUIDField', 'MultiPointField', 'MultiLineStringField',
-    'MultiPolygonField', 'GeoJsonBaseField'
+    "StringField",
+    "URLField",
+    "EmailField",
+    "IntField",
+    "LongField",
+    "FloatField",
+    "DecimalField",
+    "BooleanField",
+    "DateTimeField",
+    "DateField",
+    "ComplexDateTimeField",
+    "EmbeddedDocumentField",
+    "ObjectIdField",
+    "GenericEmbeddedDocumentField",
+    "DynamicField",
+    "ListField",
+    "SortedListField",
+    "EmbeddedDocumentListField",
+    "DictField",
+    "MapField",
+    "ReferenceField",
+    "CachedReferenceField",
+    "LazyReferenceField",
+    "GenericLazyReferenceField",
+    "GenericReferenceField",
+    "BinaryField",
+    "GridFSError",
+    "GridFSProxy",
+    "FileField",
+    "ImageGridFsProxy",
+    "ImproperlyConfigured",
+    "ImageField",
+    "GeoPointField",
+    "PointField",
+    "LineStringField",
+    "PolygonField",
+    "SequenceField",
+    "UUIDField",
+    "EnumField",
+    "MultiPointField",
+    "MultiLineStringField",
+    "MultiPolygonField",
+    "GeoJsonBaseField",
 )
 
-RECURSIVE_REFERENCE_CONSTANT = 'self'
+RECURSIVE_REFERENCE_CONSTANT = "self"
 
 
 class StringField(BaseField):
     """A unicode string field."""
 
     def __init__(self, regex=None, max_length=None, min_length=None, **kwargs):
+        """
+        :param regex: (optional) A string pattern that will be applied during validation
+        :param max_length: (optional) A max length that will be applied during validation
+        :param min_length: (optional) A min length that will be applied during validation
+        :param kwargs: Keyword arguments passed into the parent :class:`~mongoengine.BaseField`
+        """
         self.regex = re.compile(regex) if regex else None
         self.max_length = max_length
         self.min_length = min_length
-        super(StringField, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def to_python(self, value):
-        if isinstance(value, six.text_type):
+        if isinstance(value, str):
             return value
         try:
-            value = value.decode('utf-8')
+            value = value.decode("utf-8")
         except Exception:
             pass
         return value
 
     def validate(self, value):
-        if not isinstance(value, six.string_types):
-            self.error('StringField only accepts string values')
+        if not isinstance(value, str):
+            self.error("StringField only accepts string values")
 
         if self.max_length is not None and len(value) > self.max_length:
-            self.error('String value is too long')
+            self.error("String value is too long")
 
         if self.min_length is not None and len(value) < self.min_length:
-            self.error('String value is too short')
+            self.error("String value is too short")
 
         if self.regex is not None and self.regex.match(value) is None:
-            self.error('String value did not match validation regex')
+            self.error("String value did not match validation regex")
 
     def lookup_member(self, member_name):
         return None
 
     def prepare_query_value(self, op, value):
-        if not isinstance(op, six.string_types):
+        if not isinstance(op, str):
             return value
 
-        if op.lstrip('i') in ('startswith', 'endswith', 'contains', 'exact'):
-            flags = 0
-            if op.startswith('i'):
-                flags = re.IGNORECASE
-                op = op.lstrip('i')
+        if op in STRING_OPERATORS:
+            case_insensitive = op.startswith("i")
+            op = op.lstrip("i")
 
-            regex = r'%s'
-            if op == 'startswith':
-                regex = r'^%s'
-            elif op == 'endswith':
-                regex = r'%s$'
-            elif op == 'exact':
-                regex = r'^%s$'
+            flags = re.IGNORECASE if case_insensitive else 0
+
+            regex = r"%s"
+            if op == "startswith":
+                regex = r"^%s"
+            elif op == "endswith":
+                regex = r"%s$"
+            elif op == "exact":
+                regex = r"^%s$"
 
             # escape unsafe characters which could lead to a re.error
             value = re.escape(value)
             value = re.compile(regex % value, flags)
-        return super(StringField, self).prepare_query_value(op, value)
+        return super().prepare_query_value(op, value)
 
 
 class URLField(StringField):
-    """A field that validates input as an URL.
+    """A field that validates input as an URL."""
 
-    .. versionadded:: 0.3
-    """
+    _URL_REGEX = LazyRegexCompiler(
+        r"^(?:[a-z0-9\.\-]*)://"  # scheme is validated separately
+        r"(?:(?:[A-Z0-9](?:[A-Z0-9-_]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}(?<!-)\.?)|"  # domain...
+        r"localhost|"  # localhost...
+        r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|"  # ...or ipv4
+        r"\[?[A-F0-9]*:[A-F0-9:]+\]?)"  # ...or ipv6
+        r"(?::\d+)?"  # optional port
+        r"(?:/?|[/?]\S+)$",
+        re.IGNORECASE,
+    )
+    _URL_SCHEMES = ["http", "https", "ftp", "ftps"]
 
-    _URL_REGEX = re.compile(
-        r'^(?:[a-z0-9\.\-]*)://'  # scheme is validated separately
-        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}(?<!-)\.?)|'  # domain...
-        r'localhost|'  # localhost...
-        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|'  # ...or ipv4
-        r'\[?[A-F0-9]*:[A-F0-9:]+\]?)'  # ...or ipv6
-        r'(?::\d+)?'  # optional port
-        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
-    _URL_SCHEMES = ['http', 'https', 'ftp', 'ftps']
-
-    def __init__(self, verify_exists=False, url_regex=None, schemes=None, **kwargs):
-        self.verify_exists = verify_exists
+    def __init__(self, url_regex=None, schemes=None, **kwargs):
+        """
+        :param url_regex: (optional) Overwrite the default regex used for validation
+        :param schemes: (optional) Overwrite the default URL schemes that are allowed
+        :param kwargs: Keyword arguments passed into the parent :class:`~mongoengine.StringField`
+        """
         self.url_regex = url_regex or self._URL_REGEX
         self.schemes = schemes or self._URL_SCHEMES
-        super(URLField, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def validate(self, value):
         # Check first if the scheme is valid
-        scheme = value.split('://')[0].lower()
+        scheme = value.split("://")[0].lower()
         if scheme not in self.schemes:
-            self.error(u'Invalid scheme {} in URL: {}'.format(scheme, value))
-            return
+            self.error(f"Invalid scheme {scheme} in URL: {value}")
 
         # Then check full URL
         if not self.url_regex.match(value):
-            self.error(u'Invalid URL: {}'.format(value))
-            return
+            self.error(f"Invalid URL: {value}")
 
 
 class EmailField(StringField):
-    """A field that validates input as an email address.
+    """A field that validates input as an email address."""
 
-    .. versionadded:: 0.4
-    """
-    USER_REGEX = re.compile(
+    USER_REGEX = LazyRegexCompiler(
         # `dot-atom` defined in RFC 5322 Section 3.2.3.
         r"(^[-!#$%&'*+/=?^_`{}|~0-9A-Z]+(\.[-!#$%&'*+/=?^_`{}|~0-9A-Z]+)*\Z"
         # `quoted-string` defined in RFC 5322 Section 3.2.4.
         r'|^"([\001-\010\013\014\016-\037!#-\[\]-\177]|\\[\001-\011\013\014\016-\177])*"\Z)',
-        re.IGNORECASE
+        re.IGNORECASE,
     )
 
-    UTF8_USER_REGEX = re.compile(
-        six.u(
+    UTF8_USER_REGEX = LazyRegexCompiler(
+        (
             # RFC 6531 Section 3.3 extends `atext` (used by dot-atom) to
             # include `UTF8-non-ascii`.
             r"(^[-!#$%&'*+/=?^_`{}|~0-9A-Z\u0080-\U0010FFFF]+(\.[-!#$%&'*+/=?^_`{}|~0-9A-Z\u0080-\U0010FFFF]+)*\Z"
             # `quoted-string`
             r'|^"([\001-\010\013\014\016-\037!#-\[\]-\177]|\\[\001-\011\013\014\016-\177])*"\Z)'
-        ), re.IGNORECASE | re.UNICODE
+        ),
+        re.IGNORECASE | re.UNICODE,
     )
 
-    DOMAIN_REGEX = re.compile(
-        r'((?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+)(?:[A-Z0-9-]{2,63}(?<!-))\Z',
-        re.IGNORECASE
+    DOMAIN_REGEX = LazyRegexCompiler(
+        r"((?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+)(?:[A-Z0-9-]{2,63}(?<!-))\Z",
+        re.IGNORECASE,
     )
 
-    error_msg = u'Invalid email address: %s'
+    error_msg = "Invalid email address: %s"
 
-    def __init__(self, domain_whitelist=None, allow_utf8_user=False,
-                 allow_ip_domain=False, *args, **kwargs):
-        """Initialize the EmailField.
-
-        Args:
-            domain_whitelist (list) - list of otherwise invalid domain
-                                      names which you'd like to support.
-            allow_utf8_user (bool) - if True, the user part of the email
-                                     address can contain UTF8 characters.
-                                     False by default.
-            allow_ip_domain (bool) - if True, the domain part of the email
-                                     can be a valid IPv4 or IPv6 address.
+    def __init__(
+        self,
+        domain_whitelist=None,
+        allow_utf8_user=False,
+        allow_ip_domain=False,
+        *args,
+        **kwargs,
+    ):
+        """
+        :param domain_whitelist: (optional) list of valid domain names applied during validation
+        :param allow_utf8_user: Allow user part of the email to contain utf8 char
+        :param allow_ip_domain: Allow domain part of the email to be an IPv4 or IPv6 address
+        :param kwargs: Keyword arguments passed into the parent :class:`~mongoengine.StringField`
         """
         self.domain_whitelist = domain_whitelist or []
         self.allow_utf8_user = allow_utf8_user
         self.allow_ip_domain = allow_ip_domain
-        super(EmailField, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def validate_user_part(self, user_part):
         """Validate the user part of the email address. Return True if
@@ -220,27 +265,23 @@ class EmailField(StringField):
             return True
 
         # Validate IPv4/IPv6, e.g. user@[192.168.0.1]
-        if (
-            self.allow_ip_domain and
-            domain_part[0] == '[' and
-            domain_part[-1] == ']'
-        ):
+        if self.allow_ip_domain and domain_part[0] == "[" and domain_part[-1] == "]":
             for addr_family in (socket.AF_INET, socket.AF_INET6):
                 try:
                     socket.inet_pton(addr_family, domain_part[1:-1])
                     return True
-                except (socket.error, UnicodeEncodeError):
+                except (OSError, UnicodeEncodeError):
                     pass
 
         return False
 
     def validate(self, value):
-        super(EmailField, self).validate(value)
+        super().validate(value)
 
-        if '@' not in value:
+        if "@" not in value:
             self.error(self.error_msg % value)
 
-        user_part, domain_part = value.rsplit('@', 1)
+        user_part, domain_part = value.rsplit("@", 1)
 
         # Validate the user part.
         if not self.validate_user_part(user_part):
@@ -249,58 +290,76 @@ class EmailField(StringField):
         # Validate the domain and, if invalid, see if it's IDN-encoded.
         if not self.validate_domain_part(domain_part):
             try:
-                domain_part = domain_part.encode('idna').decode('ascii')
+                domain_part = domain_part.encode("idna").decode("ascii")
             except UnicodeError:
-                self.error(self.error_msg % value)
+                self.error(
+                    "{} {}".format(
+                        self.error_msg % value, "(domain failed IDN encoding)"
+                    )
+                )
             else:
                 if not self.validate_domain_part(domain_part):
-                    self.error(self.error_msg % value)
+                    self.error(
+                        "{} {}".format(
+                            self.error_msg % value, "(domain validation failed)"
+                        )
+                    )
 
 
 class IntField(BaseField):
     """32-bit integer field."""
 
     def __init__(self, min_value=None, max_value=None, **kwargs):
+        """
+        :param min_value: (optional) A min value that will be applied during validation
+        :param max_value: (optional) A max value that will be applied during validation
+        :param kwargs: Keyword arguments passed into the parent :class:`~mongoengine.BaseField`
+        """
         self.min_value, self.max_value = min_value, max_value
-        super(IntField, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def to_python(self, value):
         try:
             value = int(value)
-        except ValueError:
+        except (TypeError, ValueError):
             pass
         return value
 
     def validate(self, value):
         try:
             value = int(value)
-        except Exception:
-            self.error('%s could not be converted to int' % value)
+        except (TypeError, ValueError):
+            self.error("%s could not be converted to int" % value)
 
         if self.min_value is not None and value < self.min_value:
-            self.error('Integer value is too small')
+            self.error("Integer value is too small")
 
         if self.max_value is not None and value > self.max_value:
-            self.error('Integer value is too large')
+            self.error("Integer value is too large")
 
     def prepare_query_value(self, op, value):
         if value is None:
             return value
 
-        return super(IntField, self).prepare_query_value(op, int(value))
+        return super().prepare_query_value(op, int(value))
 
 
 class LongField(BaseField):
-    """64-bit integer field."""
+    """64-bit integer field. (Equivalent to IntField since the support to Python2 was dropped)"""
 
     def __init__(self, min_value=None, max_value=None, **kwargs):
+        """
+        :param min_value: (optional) A min value that will be applied during validation
+        :param max_value: (optional) A max value that will be applied during validation
+        :param kwargs: Keyword arguments passed into the parent :class:`~mongoengine.BaseField`
+        """
         self.min_value, self.max_value = min_value, max_value
-        super(LongField, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def to_python(self, value):
         try:
-            value = long(value)
-        except ValueError:
+            value = int(value)
+        except (TypeError, ValueError):
             pass
         return value
 
@@ -309,29 +368,34 @@ class LongField(BaseField):
 
     def validate(self, value):
         try:
-            value = long(value)
-        except Exception:
-            self.error('%s could not be converted to long' % value)
+            value = int(value)
+        except (TypeError, ValueError):
+            self.error("%s could not be converted to long" % value)
 
         if self.min_value is not None and value < self.min_value:
-            self.error('Long value is too small')
+            self.error("Long value is too small")
 
         if self.max_value is not None and value > self.max_value:
-            self.error('Long value is too large')
+            self.error("Long value is too large")
 
     def prepare_query_value(self, op, value):
         if value is None:
             return value
 
-        return super(LongField, self).prepare_query_value(op, long(value))
+        return super().prepare_query_value(op, int(value))
 
 
 class FloatField(BaseField):
     """Floating point number field."""
 
     def __init__(self, min_value=None, max_value=None, **kwargs):
+        """
+        :param min_value: (optional) A min value that will be applied during validation
+        :param max_value: (optional) A max value that will be applied during validation
+        :param kwargs: Keyword arguments passed into the parent :class:`~mongoengine.BaseField`
+        """
         self.min_value, self.max_value = min_value, max_value
-        super(FloatField, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def to_python(self, value):
         try:
@@ -341,41 +405,48 @@ class FloatField(BaseField):
         return value
 
     def validate(self, value):
-        if isinstance(value, six.integer_types):
+        if isinstance(value, int):
             try:
                 value = float(value)
             except OverflowError:
-                self.error('The value is too large to be converted to float')
+                self.error("The value is too large to be converted to float")
 
         if not isinstance(value, float):
-            self.error('FloatField only accepts float and integer values')
+            self.error("FloatField only accepts float and integer values")
 
         if self.min_value is not None and value < self.min_value:
-            self.error('Float value is too small')
+            self.error("Float value is too small")
 
         if self.max_value is not None and value > self.max_value:
-            self.error('Float value is too large')
+            self.error("Float value is too large")
 
     def prepare_query_value(self, op, value):
         if value is None:
             return value
 
-        return super(FloatField, self).prepare_query_value(op, float(value))
+        return super().prepare_query_value(op, float(value))
 
 
 class DecimalField(BaseField):
-    """Fixed-point decimal number field.
-
-    .. versionchanged:: 0.8
-    .. versionadded:: 0.3
+    """Fixed-point decimal number field. Stores the value as a float by default unless `force_string` is used.
+    If using floats, beware of Decimal to float conversion (potential precision loss)
     """
 
-    def __init__(self, min_value=None, max_value=None, force_string=False,
-                 precision=2, rounding=decimal.ROUND_HALF_UP, **kwargs):
+    def __init__(
+        self,
+        min_value=None,
+        max_value=None,
+        force_string=False,
+        precision=2,
+        rounding=decimal.ROUND_HALF_UP,
+        **kwargs,
+    ):
         """
-        :param min_value: Validation rule for the minimum acceptable value.
-        :param max_value: Validation rule for the maximum acceptable value.
-        :param force_string: Store as a string.
+        :param min_value: (optional) A min value that will be applied during validation
+        :param max_value: (optional) A max value that will be applied during validation
+        :param force_string: Store the value as a string (instead of a float).
+         Be aware that this affects query sorting and operation like lte, gte (as string comparison is applied)
+         and some query operator won't work (e.g. inc, dec)
         :param precision: Number of decimal places to store.
         :param rounding: The rounding rule from the python decimal library:
 
@@ -389,7 +460,7 @@ class DecimalField(BaseField):
             - decimal.ROUND_05UP (away from zero if last digit after rounding towards zero would have been 0 or 5; otherwise towards zero)
 
             Defaults to: ``decimal.ROUND_HALF_UP``
-
+        :param kwargs: Keyword arguments passed into the parent :class:`~mongoengine.BaseField`
         """
         self.min_value = min_value
         self.max_value = max_value
@@ -397,7 +468,7 @@ class DecimalField(BaseField):
         self.precision = precision
         self.rounding = rounding
 
-        super(DecimalField, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def to_python(self, value):
         if value is None:
@@ -405,53 +476,52 @@ class DecimalField(BaseField):
 
         # Convert to string for python 2.6 before casting to Decimal
         try:
-            value = decimal.Decimal('%s' % value)
-        except decimal.InvalidOperation:
+            value = decimal.Decimal("%s" % value)
+        except (TypeError, ValueError, decimal.InvalidOperation):
             return value
-        return value.quantize(decimal.Decimal('.%s' % ('0' * self.precision)), rounding=self.rounding)
+        return value.quantize(
+            decimal.Decimal(".%s" % ("0" * self.precision)), rounding=self.rounding
+        )
 
     def to_mongo(self, value):
         if value is None:
             return value
         if self.force_string:
-            return six.text_type(self.to_python(value))
+            return str(self.to_python(value))
         return float(self.to_python(value))
 
     def validate(self, value):
         if not isinstance(value, decimal.Decimal):
-            if not isinstance(value, six.string_types):
-                value = six.text_type(value)
+            if not isinstance(value, str):
+                value = str(value)
             try:
                 value = decimal.Decimal(value)
-            except Exception as exc:
-                self.error('Could not convert value to decimal: %s' % exc)
+            except (TypeError, ValueError, decimal.InvalidOperation) as exc:
+                self.error("Could not convert value to decimal: %s" % exc)
 
         if self.min_value is not None and value < self.min_value:
-            self.error('Decimal value is too small')
+            self.error("Decimal value is too small")
 
         if self.max_value is not None and value > self.max_value:
-            self.error('Decimal value is too large')
+            self.error("Decimal value is too large")
 
     def prepare_query_value(self, op, value):
-        return super(DecimalField, self).prepare_query_value(op, self.to_mongo(value))
+        return super().prepare_query_value(op, self.to_mongo(value))
 
 
 class BooleanField(BaseField):
-    """Boolean field type.
-
-    .. versionadded:: 0.1.2
-    """
+    """Boolean field type."""
 
     def to_python(self, value):
         try:
             value = bool(value)
-        except ValueError:
+        except (ValueError, TypeError):
             pass
         return value
 
     def validate(self, value):
         if not isinstance(value, bool):
-            self.error('BooleanField only accepts boolean values')
+            self.error("BooleanField only accepts boolean values")
 
 
 class DateTimeField(BaseField):
@@ -462,6 +532,8 @@ class DateTimeField(BaseField):
     installed you can utilise it to convert varying types of date formats into valid
     python datetime objects.
 
+    Note: To default the field to the current datetime, use: DateTimeField(default=datetime.utcnow)
+
     Note: Microseconds are rounded to the nearest millisecond.
       Pre UTC microsecond support is effectively broken.
       Use :class:`~mongoengine.fields.ComplexDateTimeField` if you
@@ -471,7 +543,7 @@ class DateTimeField(BaseField):
     def validate(self, value):
         new_value = self.to_mongo(value)
         if not isinstance(new_value, (datetime.datetime, datetime.date)):
-            self.error(u'cannot parse date "%s"' % value)
+            self.error('cannot parse date "%s"' % value)
 
     def to_mongo(self, value):
         if value is None:
@@ -483,46 +555,69 @@ class DateTimeField(BaseField):
         if callable(value):
             return value()
 
-        if not isinstance(value, six.string_types):
+        if isinstance(value, str):
+            return self._parse_datetime(value)
+        else:
             return None
 
+    @staticmethod
+    def _parse_datetime(value):
+        # Attempt to parse a datetime from a string
         value = value.strip()
         if not value:
             return None
 
-        # Attempt to parse a datetime:
         if dateutil:
             try:
                 return dateutil.parser.parse(value)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return None
 
         # split usecs, because they are not recognized by strptime.
-        if '.' in value:
+        if "." in value:
             try:
-                value, usecs = value.split('.')
+                value, usecs = value.split(".")
                 usecs = int(usecs)
             except ValueError:
                 return None
         else:
             usecs = 0
-        kwargs = {'microsecond': usecs}
+        kwargs = {"microsecond": usecs}
         try:  # Seconds are optional, so try converting seconds first.
-            return datetime.datetime(*time.strptime(value,
-                                                    '%Y-%m-%d %H:%M:%S')[:6], **kwargs)
+            return datetime.datetime(
+                *time.strptime(value, "%Y-%m-%d %H:%M:%S")[:6], **kwargs
+            )
         except ValueError:
             try:  # Try without seconds.
-                return datetime.datetime(*time.strptime(value,
-                                                        '%Y-%m-%d %H:%M')[:5], **kwargs)
+                return datetime.datetime(
+                    *time.strptime(value, "%Y-%m-%d %H:%M")[:5], **kwargs
+                )
             except ValueError:  # Try without hour/minutes/seconds.
                 try:
-                    return datetime.datetime(*time.strptime(value,
-                                                            '%Y-%m-%d')[:3], **kwargs)
+                    return datetime.datetime(
+                        *time.strptime(value, "%Y-%m-%d")[:3], **kwargs
+                    )
                 except ValueError:
                     return None
 
     def prepare_query_value(self, op, value):
-        return super(DateTimeField, self).prepare_query_value(op, self.to_mongo(value))
+        return super().prepare_query_value(op, self.to_mongo(value))
+
+
+class DateField(DateTimeField):
+    def to_mongo(self, value):
+        value = super().to_mongo(value)
+        # drop hours, minutes, seconds
+        if isinstance(value, datetime.datetime):
+            value = datetime.datetime(value.year, value.month, value.day)
+        return value
+
+    def to_python(self, value):
+        value = super().to_python(value)
+        # convert datetime to date
+        if isinstance(value, datetime.datetime):
+            value = datetime.date(value.year, value.month, value.day)
+        return value
 
 
 class ComplexDateTimeField(StringField):
@@ -541,14 +636,17 @@ class ComplexDateTimeField(StringField):
     The `,` as the separator can be easily modified by passing the `separator`
     keyword when initializing the field.
 
-    .. versionadded:: 0.5
+    Note: To default the field to the current datetime, use: DateTimeField(default=datetime.utcnow)
     """
 
-    def __init__(self, separator=',', **kwargs):
-        self.names = ['year', 'month', 'day', 'hour', 'minute', 'second', 'microsecond']
+    def __init__(self, separator=",", **kwargs):
+        """
+        :param separator: Allows to customize the separator used for storage (default ``,``)
+        :param kwargs: Keyword arguments passed into the parent :class:`~mongoengine.StringField`
+        """
         self.separator = separator
-        self.format = separator.join(['%Y', '%m', '%d', '%H', '%M', '%S', '%f'])
-        super(ComplexDateTimeField, self).__init__(**kwargs)
+        self.format = separator.join(["%Y", "%m", "%d", "%H", "%M", "%S", "%f"])
+        super().__init__(**kwargs)
 
     def _convert_from_datetime(self, val):
         """
@@ -572,26 +670,32 @@ class ComplexDateTimeField(StringField):
         >>> ComplexDateTimeField()._convert_from_string(a)
         datetime.datetime(2011, 6, 8, 20, 26, 24, 92284)
         """
-        values = map(int, data.split(self.separator))
+        values = [int(d) for d in data.split(self.separator)]
         return datetime.datetime(*values)
 
     def __get__(self, instance, owner):
-        data = super(ComplexDateTimeField, self).__get__(instance, owner)
-        if data is None:
-            return None if self.null else datetime.datetime.now()
-        if isinstance(data, datetime.datetime):
+        if instance is None:
+            return self
+
+        data = super().__get__(instance, owner)
+
+        if isinstance(data, datetime.datetime) or data is None:
             return data
         return self._convert_from_string(data)
 
     def __set__(self, instance, value):
-        value = self._convert_from_datetime(value) if value else value
-        return super(ComplexDateTimeField, self).__set__(instance, value)
+        super().__set__(instance, value)
+        value = instance._data[self.name]
+        if value is not None:
+            if isinstance(value, datetime.datetime):
+                instance._data[self.name] = self._convert_from_datetime(value)
+            else:
+                instance._data[self.name] = value
 
     def validate(self, value):
         value = self.to_python(value)
         if not isinstance(value, datetime.datetime):
-            self.error('Only datetime objects may used in a '
-                       'ComplexDateTimeField')
+            self.error("Only datetime objects may used in a ComplexDateTimeField")
 
     def to_python(self, value):
         original_value = value
@@ -605,7 +709,7 @@ class ComplexDateTimeField(StringField):
         return self._convert_from_datetime(value)
 
     def prepare_query_value(self, op, value):
-        return super(ComplexDateTimeField, self).prepare_query_value(op, self._convert_from_datetime(value))
+        return super().prepare_query_value(op, self._convert_from_datetime(value))
 
 
 class EmbeddedDocumentField(BaseField):
@@ -616,27 +720,41 @@ class EmbeddedDocumentField(BaseField):
     def __init__(self, document_type, **kwargs):
         # XXX ValidationError raised outside of the "validate" method.
         if not (
-            isinstance(document_type, six.string_types) or
-            issubclass(document_type, EmbeddedDocument)
+            isinstance(document_type, str)
+            or issubclass(document_type, EmbeddedDocument)
         ):
-            self.error('Invalid embedded document class provided to an '
-                       'EmbeddedDocumentField')
+            self.error(
+                "Invalid embedded document class provided to an "
+                "EmbeddedDocumentField"
+            )
 
         self.document_type_obj = document_type
-        super(EmbeddedDocumentField, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     @property
     def document_type(self):
-        if isinstance(self.document_type_obj, six.string_types):
+        if isinstance(self.document_type_obj, str):
             if self.document_type_obj == RECURSIVE_REFERENCE_CONSTANT:
-                self.document_type_obj = self.owner_document
+                resolved_document_type = self.owner_document
             else:
-                self.document_type_obj = get_document(self.document_type_obj)
+                resolved_document_type = get_document(self.document_type_obj)
+
+            if not issubclass(resolved_document_type, EmbeddedDocument):
+                # Due to the late resolution of the document_type
+                # There is a chance that it won't be an EmbeddedDocument (#1661)
+                self.error(
+                    "Invalid embedded document class provided to an "
+                    "EmbeddedDocumentField"
+                )
+            self.document_type_obj = resolved_document_type
+
         return self.document_type_obj
 
     def to_python(self, value):
         if not isinstance(value, self.document_type):
-            return self.document_type._from_son(value, _auto_dereference=self._auto_dereference)
+            return self.document_type._from_son(
+                value, _auto_dereference=self._auto_dereference
+            )
         return value
 
     def to_mongo(self, value, use_db_field=True, fields=None):
@@ -650,21 +768,32 @@ class EmbeddedDocumentField(BaseField):
         """
         # Using isinstance also works for subclasses of self.document
         if not isinstance(value, self.document_type):
-            self.error('Invalid embedded document instance provided to an '
-                       'EmbeddedDocumentField')
+            self.error(
+                "Invalid embedded document instance provided to an "
+                "EmbeddedDocumentField"
+            )
         self.document_type.validate(value, clean)
 
     def lookup_member(self, member_name):
-        return self.document_type._fields.get(member_name)
+        doc_and_subclasses = [self.document_type] + self.document_type.__subclasses__()
+        for doc_type in doc_and_subclasses:
+            field = doc_type._fields.get(member_name)
+            if field:
+                return field
 
     def prepare_query_value(self, op, value):
         if value is not None and not isinstance(value, self.document_type):
+            # Short circuit for special operators, returning them as is
+            if isinstance(value, dict) and all(k.startswith("$") for k in value.keys()):
+                return value
             try:
                 value = self.document_type._from_son(value)
             except ValueError:
-                raise InvalidQueryError("Querying the embedded document '%s' failed, due to an invalid query value" %
-                                        (self.document_type._class_name,))
-        super(EmbeddedDocumentField, self).prepare_query_value(op, value)
+                raise InvalidQueryError(
+                    "Querying the embedded document '%s' failed, due to an invalid query value"
+                    % (self.document_type._class_name,)
+                )
+        super().prepare_query_value(op, value)
         return self.to_mongo(value)
 
 
@@ -680,11 +809,11 @@ class GenericEmbeddedDocumentField(BaseField):
     """
 
     def prepare_query_value(self, op, value):
-        return super(GenericEmbeddedDocumentField, self).prepare_query_value(op, self.to_mongo(value))
+        return super().prepare_query_value(op, self.to_mongo(value))
 
     def to_python(self, value):
         if isinstance(value, dict):
-            doc_cls = get_document(value['_cls'])
+            doc_cls = get_document(value["_cls"])
             value = doc_cls._from_son(value)
 
         return value
@@ -692,29 +821,32 @@ class GenericEmbeddedDocumentField(BaseField):
     def validate(self, value, clean=True):
         if self.choices and isinstance(value, SON):
             for choice in self.choices:
-                if value['_cls'] == choice._class_name:
+                if value["_cls"] == choice._class_name:
                     return True
 
         if not isinstance(value, EmbeddedDocument):
-            self.error('Invalid embedded document instance provided to an '
-                       'GenericEmbeddedDocumentField')
+            self.error(
+                "Invalid embedded document instance provided to an "
+                "GenericEmbeddedDocumentField"
+            )
 
         value.validate(clean=clean)
 
     def lookup_member(self, member_name):
-        if self.choices:
-            for choice in self.choices:
-                field = choice._fields.get(member_name)
+        document_choices = self.choices or []
+        for document_choice in document_choices:
+            doc_and_subclasses = [document_choice] + document_choice.__subclasses__()
+            for doc_type in doc_and_subclasses:
+                field = doc_type._fields.get(member_name)
                 if field:
                     return field
-        return None
 
     def to_mongo(self, document, use_db_field=True, fields=None):
         if document is None:
             return None
         data = document.to_mongo(use_db_field, fields)
-        if '_cls' not in data:
-            data['_cls'] = document._class_name
+        if "_cls" not in data:
+            data["_cls"] = document._class_name
         return data
 
 
@@ -725,58 +857,57 @@ class DynamicField(BaseField):
     Used by :class:`~mongoengine.DynamicDocument` to handle dynamic data"""
 
     def to_mongo(self, value, use_db_field=True, fields=None):
-        """Convert a Python type to a MongoDB compatible type.
-        """
+        """Convert a Python type to a MongoDB compatible type."""
 
-        if isinstance(value, six.string_types):
+        if isinstance(value, str):
             return value
 
-        if hasattr(value, 'to_mongo'):
+        if hasattr(value, "to_mongo"):
             cls = value.__class__
             val = value.to_mongo(use_db_field, fields)
             # If we its a document thats not inherited add _cls
             if isinstance(value, Document):
-                val = {'_ref': value.to_dbref(), '_cls': cls.__name__}
+                val = {"_ref": value.to_dbref(), "_cls": cls.__name__}
             if isinstance(value, EmbeddedDocument):
-                val['_cls'] = cls.__name__
+                val["_cls"] = cls.__name__
             return val
 
         if not isinstance(value, (dict, list, tuple)):
             return value
 
         is_list = False
-        if not hasattr(value, 'items'):
+        if not hasattr(value, "items"):
             is_list = True
             value = {k: v for k, v in enumerate(value)}
 
         data = {}
-        for k, v in value.iteritems():
+        for k, v in value.items():
             data[k] = self.to_mongo(v, use_db_field, fields)
 
         value = data
         if is_list:  # Convert back to a list
-            value = [v for k, v in sorted(data.iteritems(), key=itemgetter(0))]
+            value = [v for k, v in sorted(data.items(), key=itemgetter(0))]
         return value
 
     def to_python(self, value):
-        if isinstance(value, dict) and '_cls' in value:
-            doc_cls = get_document(value['_cls'])
-            if '_ref' in value:
-                value = doc_cls._get_db().dereference(value['_ref'])
+        if isinstance(value, dict) and "_cls" in value:
+            doc_cls = get_document(value["_cls"])
+            if "_ref" in value:
+                value = doc_cls._get_db().dereference(value["_ref"])
             return doc_cls._from_son(value)
 
-        return super(DynamicField, self).to_python(value)
+        return super().to_python(value)
 
     def lookup_member(self, member_name):
         return member_name
 
     def prepare_query_value(self, op, value):
-        if isinstance(value, six.string_types):
+        if isinstance(value, str):
             return StringField().prepare_query_value(op, value)
-        return super(DynamicField, self).prepare_query_value(op, self.to_mongo(value))
+        return super().prepare_query_value(op, self.to_mongo(value))
 
     def validate(self, value, clean=True):
-        if hasattr(value, 'validate'):
+        if hasattr(value, "validate"):
             value.validate(clean=clean)
 
 
@@ -790,45 +921,59 @@ class ListField(ComplexBaseField):
         Required means it cannot be empty - as the default for ListFields is []
     """
 
-    def __init__(self, field=None, **kwargs):
-        self.field = field
-        kwargs.setdefault('default', lambda: [])
-        super(ListField, self).__init__(**kwargs)
+    def __init__(self, field=None, max_length=None, **kwargs):
+        self.max_length = max_length
+        kwargs.setdefault("default", lambda: [])
+        super().__init__(field=field, **kwargs)
 
     def __get__(self, instance, owner):
         if instance is None:
             # Document class being used rather than a document object
             return self
         value = instance._data.get(self.name)
-        LazyReferenceField = _import_class('LazyReferenceField')
-        GenericLazyReferenceField = _import_class('GenericLazyReferenceField')
-        if isinstance(self.field, (LazyReferenceField, GenericLazyReferenceField)) and value:
+        LazyReferenceField = _import_class("LazyReferenceField")
+        GenericLazyReferenceField = _import_class("GenericLazyReferenceField")
+        if (
+            isinstance(self.field, (LazyReferenceField, GenericLazyReferenceField))
+            and value
+        ):
             instance._data[self.name] = [self.field.build_lazyref(x) for x in value]
-        return super(ListField, self).__get__(instance, owner)
+        return super().__get__(instance, owner)
 
     def validate(self, value):
         """Make sure that a list of valid fields is being used."""
-        if (not isinstance(value, (list, tuple, QuerySet)) or
-                isinstance(value, six.string_types)):
-            self.error('Only lists and tuples may be used in a list field')
-        super(ListField, self).validate(value)
+        if not isinstance(value, (list, tuple, BaseQuerySet)):
+            self.error("Only lists and tuples may be used in a list field")
+
+        # Validate that max_length is not exceeded.
+        # NOTE It's still possible to bypass this enforcement by using $push.
+        # However, if the document is reloaded after $push and then re-saved,
+        # the validation error will be raised.
+        if self.max_length is not None and len(value) > self.max_length:
+            self.error("List is too long")
+
+        super().validate(value)
 
     def prepare_query_value(self, op, value):
+        # Validate that the `set` operator doesn't contain more items than `max_length`.
+        if op == "set" and self.max_length is not None and len(value) > self.max_length:
+            self.error("List is too long")
+
         if self.field:
 
             # If the value is iterable and it's not a string nor a
             # BaseDocument, call prepare_query_value for each of its items.
             if (
-                op in ('set', 'unset', None) and
-                hasattr(value, '__iter__') and
-                not isinstance(value, six.string_types) and
-                not isinstance(value, BaseDocument)
+                op in ("set", "unset", None)
+                and hasattr(value, "__iter__")
+                and not isinstance(value, str)
+                and not isinstance(value, BaseDocument)
             ):
                 return [self.field.prepare_query_value(op, v) for v in value]
 
             return self.field.prepare_query_value(op, value)
 
-        return super(ListField, self).prepare_query_value(op, value)
+        return super().prepare_query_value(op, value)
 
 
 class EmbeddedDocumentListField(ListField):
@@ -838,20 +983,15 @@ class EmbeddedDocumentListField(ListField):
     .. note::
         The only valid list values are subclasses of
         :class:`~mongoengine.EmbeddedDocument`.
-
-    .. versionadded:: 0.9
     """
 
     def __init__(self, document_type, **kwargs):
         """
         :param document_type: The type of
          :class:`~mongoengine.EmbeddedDocument` the list will hold.
-        :param kwargs: Keyword arguments passed directly into the parent
-         :class:`~mongoengine.ListField`.
+        :param kwargs: Keyword arguments passed into the parent :class:`~mongoengine.ListField`
         """
-        super(EmbeddedDocumentListField, self).__init__(
-            field=EmbeddedDocumentField(document_type), **kwargs
-        )
+        super().__init__(field=EmbeddedDocumentField(document_type), **kwargs)
 
 
 class SortedListField(ListField):
@@ -864,26 +1004,19 @@ class SortedListField(ListField):
         save the whole list then other processes trying to save the whole list
         as well could overwrite changes.  The safest way to append to a list is
         to perform a push operation.
-
-    .. versionadded:: 0.4
-    .. versionchanged:: 0.6 - added reverse keyword
     """
 
-    _ordering = None
-    _order_reverse = False
-
     def __init__(self, field, **kwargs):
-        if 'ordering' in kwargs.keys():
-            self._ordering = kwargs.pop('ordering')
-        if 'reverse' in kwargs.keys():
-            self._order_reverse = kwargs.pop('reverse')
-        super(SortedListField, self).__init__(field, **kwargs)
+        self._ordering = kwargs.pop("ordering", None)
+        self._order_reverse = kwargs.pop("reverse", False)
+        super().__init__(field, **kwargs)
 
     def to_mongo(self, value, use_db_field=True, fields=None):
-        value = super(SortedListField, self).to_mongo(value, use_db_field, fields)
+        value = super().to_mongo(value, use_db_field, fields)
         if self._ordering is not None:
-            return sorted(value, key=itemgetter(self._ordering),
-                          reverse=self._order_reverse)
+            return sorted(
+                value, key=itemgetter(self._ordering), reverse=self._order_reverse
+            )
         return sorted(value, reverse=self._order_reverse)
 
 
@@ -892,16 +1025,16 @@ def key_not_string(d):
     dictionary is not a string.
     """
     for k, v in d.items():
-        if not isinstance(k, six.string_types) or (isinstance(v, dict) and key_not_string(v)):
+        if not isinstance(k, str) or (isinstance(v, dict) and key_not_string(v)):
             return True
 
 
-def key_has_dot_or_dollar(d):
+def key_starts_with_dollar(d):
     """Helper function to recursively determine if any key in a
-    dictionary contains a dot or a dollar sign.
+    dictionary starts with a dollar
     """
     for k, v in d.items():
-        if ('.' in k or '$' in k) or (isinstance(v, dict) and key_has_dot_or_dollar(v)):
+        if (k.startswith("$")) or (isinstance(v, dict) and key_starts_with_dollar(v)):
             return True
 
 
@@ -911,73 +1044,75 @@ class DictField(ComplexBaseField):
 
     .. note::
         Required means it cannot be empty - as the default for DictFields is {}
-
-    .. versionadded:: 0.3
-    .. versionchanged:: 0.5 - Can now handle complex / varying types of data
     """
 
-    def __init__(self, basecls=None, field=None, *args, **kwargs):
-        self.field = field
+    def __init__(self, field=None, *args, **kwargs):
         self._auto_dereference = False
-        self.basecls = basecls or BaseField
 
-        # XXX ValidationError raised outside of the "validate" method.
-        if not issubclass(self.basecls, BaseField):
-            self.error('DictField only accepts dict values')
-
-        kwargs.setdefault('default', lambda: {})
-        super(DictField, self).__init__(*args, **kwargs)
+        kwargs.setdefault("default", lambda: {})
+        super().__init__(*args, field=field, **kwargs)
 
     def validate(self, value):
         """Make sure that a list of valid fields is being used."""
         if not isinstance(value, dict):
-            self.error('Only dictionaries may be used in a DictField')
+            self.error("Only dictionaries may be used in a DictField")
 
         if key_not_string(value):
-            msg = ('Invalid dictionary key - documents must '
-                   'have only string keys')
+            msg = "Invalid dictionary key - documents must have only string keys"
             self.error(msg)
-        if key_has_dot_or_dollar(value):
-            self.error('Invalid dictionary key name - keys may not contain "."'
-                       ' or "$" characters')
-        super(DictField, self).validate(value)
+
+        # Following condition applies to MongoDB >= 3.6
+        # older Mongo has stricter constraints but
+        # it will be rejected upon insertion anyway
+        # Having a validation that depends on the MongoDB version
+        # is not straightforward as the field isn't aware of the connected Mongo
+        if key_starts_with_dollar(value):
+            self.error(
+                'Invalid dictionary key name - keys may not startswith "$" characters'
+            )
+        super().validate(value)
 
     def lookup_member(self, member_name):
-        return DictField(basecls=self.basecls, db_field=member_name)
+        return DictField(db_field=member_name)
 
     def prepare_query_value(self, op, value):
-        match_operators = ['contains', 'icontains', 'startswith',
-                           'istartswith', 'endswith', 'iendswith',
-                           'exact', 'iexact']
+        match_operators = [
+            "contains",
+            "icontains",
+            "startswith",
+            "istartswith",
+            "endswith",
+            "iendswith",
+            "exact",
+            "iexact",
+        ]
 
-        if op in match_operators and isinstance(value, six.string_types):
+        if op in match_operators and isinstance(value, str):
             return StringField().prepare_query_value(op, value)
 
-        if hasattr(self.field, 'field'):
-            if op in ('set', 'unset') and isinstance(value, dict):
+        if hasattr(
+            self.field, "field"
+        ):  # Used for instance when using DictField(ListField(IntField()))
+            if op in ("set", "unset") and isinstance(value, dict):
                 return {
-                    k: self.field.prepare_query_value(op, v)
-                    for k, v in value.items()
+                    k: self.field.prepare_query_value(op, v) for k, v in value.items()
                 }
             return self.field.prepare_query_value(op, value)
 
-        return super(DictField, self).prepare_query_value(op, value)
+        return super().prepare_query_value(op, value)
 
 
 class MapField(DictField):
     """A field that maps a name to a specified field type. Similar to
     a DictField, except the 'value' of each item must match the specified
     field type.
-
-    .. versionadded:: 0.5
     """
 
     def __init__(self, field=None, *args, **kwargs):
         # XXX ValidationError raised outside of the "validate" method.
         if not isinstance(field, BaseField):
-            self.error('Argument to MapField constructor must be a valid '
-                       'field')
-        super(MapField, self).__init__(field=field, *args, **kwargs)
+            self.error("Argument to MapField constructor must be a valid field")
+        super().__init__(field=field, *args, **kwargs)
 
 
 class ReferenceField(BaseField):
@@ -1011,44 +1146,48 @@ class ReferenceField(BaseField):
 
     .. code-block:: python
 
-        class Bar(Document):
-            content = StringField()
-            foo = ReferenceField('Foo')
+        class Org(Document):
+            owner = ReferenceField('User')
 
-        Foo.register_delete_rule(Bar, 'foo', NULLIFY)
+        class User(Document):
+            org = ReferenceField('Org', reverse_delete_rule=CASCADE)
 
-    .. versionchanged:: 0.5 added `reverse_delete_rule`
+        User.register_delete_rule(Org, 'owner', DENY)
     """
 
-    def __init__(self, document_type, dbref=False,
-                 reverse_delete_rule=DO_NOTHING, **kwargs):
+    def __init__(
+        self, document_type, dbref=False, reverse_delete_rule=DO_NOTHING, **kwargs
+    ):
         """Initialises the Reference Field.
 
+        :param document_type: The type of Document that will be referenced
         :param dbref:  Store the reference as :class:`~pymongo.dbref.DBRef`
-          or as the :class:`~pymongo.objectid.ObjectId`.id .
+          or as the :class:`~pymongo.objectid.ObjectId`.
         :param reverse_delete_rule: Determines what to do when the referring
           object is deleted
+        :param kwargs: Keyword arguments passed into the parent :class:`~mongoengine.BaseField`
 
         .. note ::
             A reference to an abstract document type is always stored as a
             :class:`~pymongo.dbref.DBRef`, regardless of the value of `dbref`.
         """
         # XXX ValidationError raised outside of the "validate" method.
-        if (
-            not isinstance(document_type, six.string_types) and
-            not issubclass(document_type, Document)
+        if not isinstance(document_type, str) and not issubclass(
+            document_type, Document
         ):
-            self.error('Argument to ReferenceField constructor must be a '
-                       'document class or a string')
+            self.error(
+                "Argument to ReferenceField constructor must be a "
+                "document class or a string"
+            )
 
         self.dbref = dbref
         self.document_type_obj = document_type
         self.reverse_delete_rule = reverse_delete_rule
-        super(ReferenceField, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     @property
     def document_type(self):
-        if isinstance(self.document_type_obj, six.string_types):
+        if isinstance(self.document_type_obj, str):
             if self.document_type_obj == RECURSIVE_REFERENCE_CONSTANT:
                 self.document_type_obj = self.owner_document
             else:
@@ -1063,21 +1202,21 @@ class ReferenceField(BaseField):
 
         # Get value from document instance if available
         value = instance._data.get(self.name)
-        self._auto_dereference = instance._fields[self.name]._auto_dereference
+        auto_dereference = instance._fields[self.name]._auto_dereference
         # Dereference DBRefs
-        if self._auto_dereference and isinstance(value, DBRef):
-            if hasattr(value, 'cls'):
+        if auto_dereference and isinstance(value, DBRef):
+            if hasattr(value, "cls"):
                 # Dereference using the class type specified in the reference
                 cls = get_document(value.cls)
             else:
                 cls = self.document_type
             dereferenced = cls._get_db().dereference(value)
             if dereferenced is None:
-                raise DoesNotExist('Trying to dereference unknown document %s' % value)
+                raise DoesNotExist("Trying to dereference unknown document %s" % value)
             else:
                 instance._data[self.name] = cls._from_son(dereferenced)
 
-        return super(ReferenceField, self).__get__(instance, owner)
+        return super().__get__(instance, owner)
 
     def to_mongo(self, document):
         if isinstance(document, DBRef):
@@ -1091,8 +1230,10 @@ class ReferenceField(BaseField):
 
             # XXX ValidationError raised outside of the "validate" method.
             if id_ is None:
-                self.error('You can only reference documents once they have'
-                           ' been saved to the database')
+                self.error(
+                    "You can only reference documents once they have"
+                    " been saved to the database"
+                )
 
             # Use the attributes from the document instance, so that they
             # override the attributes of this field's document type
@@ -1101,11 +1242,11 @@ class ReferenceField(BaseField):
             id_ = document
             cls = self.document_type
 
-        id_field_name = cls._meta['id_field']
+        id_field_name = cls._meta["id_field"]
         id_field = cls._fields[id_field_name]
 
         id_ = id_field.to_mongo(id_)
-        if self.document_type._meta.get('abstract'):
+        if self.document_type._meta.get("abstract"):
             collection = cls._get_collection_name()
             return DBRef(collection, id_, cls=cls._class_name)
         elif self.dbref:
@@ -1116,8 +1257,9 @@ class ReferenceField(BaseField):
 
     def to_python(self, value):
         """Convert a MongoDB-compatible type to a Python type."""
-        if (not self.dbref and
-                not isinstance(value, (DBRef, Document, EmbeddedDocument))):
+        if not self.dbref and not isinstance(
+            value, (DBRef, Document, EmbeddedDocument)
+        ):
             collection = self.document_type._get_collection_name()
             value = DBRef(collection, self.document_type.id.to_python(value))
         return value
@@ -1125,25 +1267,19 @@ class ReferenceField(BaseField):
     def prepare_query_value(self, op, value):
         if value is None:
             return None
-        super(ReferenceField, self).prepare_query_value(op, value)
+        super().prepare_query_value(op, value)
         return self.to_mongo(value)
 
     def validate(self, value):
         if not isinstance(value, (self.document_type, LazyReference, DBRef, ObjectId)):
-            self.error('A ReferenceField only accepts DBRef, LazyReference, ObjectId or documents')
+            self.error(
+                "A ReferenceField only accepts DBRef, LazyReference, ObjectId or documents"
+            )
 
         if isinstance(value, Document) and value.id is None:
-            self.error('You can only reference documents once they have been '
-                       'saved to the database')
-
-        if (
-            self.document_type._meta.get('abstract') and
-            not isinstance(value, self.document_type)
-        ):
             self.error(
-                '%s is not an instance of abstract reference type %s' % (
-                    self.document_type._class_name
-                )
+                "You can only reference documents once they have been "
+                "saved to the database"
             )
 
     def lookup_member(self, member_name):
@@ -1151,46 +1287,44 @@ class ReferenceField(BaseField):
 
 
 class CachedReferenceField(BaseField):
-    """
-    A referencefield with cache fields to purpose pseudo-joins
-
-    .. versionadded:: 0.9
-    """
+    """A referencefield with cache fields to purpose pseudo-joins"""
 
     def __init__(self, document_type, fields=None, auto_sync=True, **kwargs):
         """Initialises the Cached Reference Field.
 
+        :param document_type: The type of Document that will be referenced
         :param fields:  A list of fields to be cached in document
-        :param auto_sync: if True documents are auto updated.
+        :param auto_sync: if True documents are auto updated
+        :param kwargs: Keyword arguments passed into the parent :class:`~mongoengine.BaseField`
         """
         if fields is None:
             fields = []
 
         # XXX ValidationError raised outside of the "validate" method.
-        if (
-            not isinstance(document_type, six.string_types) and
-            not issubclass(document_type, Document)
+        if not isinstance(document_type, str) and not (
+            inspect.isclass(document_type) and issubclass(document_type, Document)
         ):
-            self.error('Argument to CachedReferenceField constructor must be a'
-                       ' document class or a string')
+            self.error(
+                "Argument to CachedReferenceField constructor must be a"
+                " document class or a string"
+            )
 
         self.auto_sync = auto_sync
         self.document_type_obj = document_type
         self.fields = fields
-        super(CachedReferenceField, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def start_listener(self):
         from mongoengine import signals
 
-        signals.post_save.connect(self.on_document_pre_save,
-                                  sender=self.document_type)
+        signals.post_save.connect(self.on_document_pre_save, sender=self.document_type)
 
     def on_document_pre_save(self, sender, document, created, **kwargs):
         if created:
             return None
 
         update_kwargs = {
-            'set__%s__%s' % (self.name, key): val
+            f"set__{self.name}__{key}": val
             for key, val in document._delta()[0].items()
             if key in self.fields
         }
@@ -1198,21 +1332,21 @@ class CachedReferenceField(BaseField):
             filter_kwargs = {}
             filter_kwargs[self.name] = document
 
-            self.owner_document.objects(
-                **filter_kwargs).update(**update_kwargs)
+            self.owner_document.objects(**filter_kwargs).update(**update_kwargs)
 
     def to_python(self, value):
         if isinstance(value, dict):
             collection = self.document_type._get_collection_name()
-            value = DBRef(
-                collection, self.document_type.id.to_python(value['_id']))
-            return self.document_type._from_son(self.document_type._get_db().dereference(value))
+            value = DBRef(collection, self.document_type.id.to_python(value["_id"]))
+            return self.document_type._from_son(
+                self.document_type._get_db().dereference(value)
+            )
 
         return value
 
     @property
     def document_type(self):
-        if isinstance(self.document_type_obj, six.string_types):
+        if isinstance(self.document_type_obj, str):
             if self.document_type_obj == RECURSIVE_REFERENCE_CONSTANT:
                 self.document_type_obj = self.owner_document
             else:
@@ -1226,19 +1360,20 @@ class CachedReferenceField(BaseField):
 
         # Get value from document instance if available
         value = instance._data.get(self.name)
-        self._auto_dereference = instance._fields[self.name]._auto_dereference
+        auto_dereference = instance._fields[self.name]._auto_dereference
+
         # Dereference DBRefs
-        if self._auto_dereference and isinstance(value, DBRef):
+        if auto_dereference and isinstance(value, DBRef):
             dereferenced = self.document_type._get_db().dereference(value)
             if dereferenced is None:
-                raise DoesNotExist('Trying to dereference unknown document %s' % value)
+                raise DoesNotExist("Trying to dereference unknown document %s" % value)
             else:
                 instance._data[self.name] = self.document_type._from_son(dereferenced)
 
-        return super(CachedReferenceField, self).__get__(instance, owner)
+        return super().__get__(instance, owner)
 
     def to_mongo(self, document, use_db_field=True, fields=None):
-        id_field_name = self.document_type._meta['id_field']
+        id_field_name = self.document_type._meta["id_field"]
         id_field = self.document_type._fields[id_field_name]
 
         # XXX ValidationError raised outside of the "validate" method.
@@ -1246,14 +1381,14 @@ class CachedReferenceField(BaseField):
             # We need the id from the saved object to create the DBRef
             id_ = document.pk
             if id_ is None:
-                self.error('You can only reference documents once they have'
-                           ' been saved to the database')
+                self.error(
+                    "You can only reference documents once they have"
+                    " been saved to the database"
+                )
         else:
-            self.error('Only accept a document object')
+            self.error("Only accept a document object")
 
-        value = SON((
-            ('_id', id_field.to_mongo(id_)),
-        ))
+        value = SON((("_id", id_field.to_mongo(id_)),))
 
         if fields:
             new_fields = [f for f in self.fields if f in fields]
@@ -1270,9 +1405,11 @@ class CachedReferenceField(BaseField):
         # XXX ValidationError raised outside of the "validate" method.
         if isinstance(value, Document):
             if value.pk is None:
-                self.error('You can only reference documents once they have'
-                           ' been saved to the database')
-            value_dict = {'_id': value.pk}
+                self.error(
+                    "You can only reference documents once they have"
+                    " been saved to the database"
+                )
+            value_dict = {"_id": value.pk}
             for field in self.fields:
                 value_dict.update({field: value[field]})
 
@@ -1282,11 +1419,13 @@ class CachedReferenceField(BaseField):
 
     def validate(self, value):
         if not isinstance(value, self.document_type):
-            self.error('A CachedReferenceField only accepts documents')
+            self.error("A CachedReferenceField only accepts documents")
 
         if isinstance(value, Document) and value.id is None:
-            self.error('You can only reference documents once they have been '
-                       'saved to the database')
+            self.error(
+                "You can only reference documents once they have been "
+                "saved to the database"
+            )
 
     def lookup_member(self, member_name):
         return self.document_type._fields.get(member_name)
@@ -1296,7 +1435,7 @@ class CachedReferenceField(BaseField):
         Sync all cached fields on demand.
         Caution: this operation may be slower.
         """
-        update_key = 'set__%s' % self.name
+        update_key = "set__%s" % self.name
 
         for doc in self.document_type.objects:
             filter_kwargs = {}
@@ -1305,8 +1444,7 @@ class CachedReferenceField(BaseField):
             update_kwargs = {}
             update_kwargs[update_key] = doc
 
-            self.owner_document.objects(
-                **filter_kwargs).update(**update_kwargs)
+            self.owner_document.objects(**filter_kwargs).update(**update_kwargs)
 
 
 class GenericReferenceField(BaseField):
@@ -1325,35 +1463,35 @@ class GenericReferenceField(BaseField):
           it.
 
         * You can use the choices param to limit the acceptable Document types
-
-    .. versionadded:: 0.3
     """
 
     def __init__(self, *args, **kwargs):
-        choices = kwargs.pop('choices', None)
-        super(GenericReferenceField, self).__init__(*args, **kwargs)
+        choices = kwargs.pop("choices", None)
+        super().__init__(*args, **kwargs)
         self.choices = []
         # Keep the choices as a list of allowed Document class names
         if choices:
             for choice in choices:
-                if isinstance(choice, six.string_types):
+                if isinstance(choice, str):
                     self.choices.append(choice)
                 elif isinstance(choice, type) and issubclass(choice, Document):
                     self.choices.append(choice._class_name)
                 else:
                     # XXX ValidationError raised outside of the "validate"
                     # method.
-                    self.error('Invalid choices provided: must be a list of'
-                               'Document subclasses and/or six.string_typess')
+                    self.error(
+                        "Invalid choices provided: must be a list of"
+                        "Document subclasses and/or str"
+                    )
 
     def _validate_choices(self, value):
         if isinstance(value, dict):
             # If the field has not been dereferenced, it is still a dict
             # of class and DBRef
-            value = value.get('_cls')
+            value = value.get("_cls")
         elif isinstance(value, Document):
             value = value._class_name
-        super(GenericReferenceField, self)._validate_choices(value)
+        super()._validate_choices(value)
 
     def __get__(self, instance, owner):
         if instance is None:
@@ -1361,32 +1499,34 @@ class GenericReferenceField(BaseField):
 
         value = instance._data.get(self.name)
 
-        self._auto_dereference = instance._fields[self.name]._auto_dereference
-        if self._auto_dereference and isinstance(value, (dict, SON)):
+        auto_dereference = instance._fields[self.name]._auto_dereference
+        if auto_dereference and isinstance(value, (dict, SON)):
             dereferenced = self.dereference(value)
             if dereferenced is None:
-                raise DoesNotExist('Trying to dereference unknown document %s' % value)
+                raise DoesNotExist("Trying to dereference unknown document %s" % value)
             else:
                 instance._data[self.name] = dereferenced
 
-        return super(GenericReferenceField, self).__get__(instance, owner)
+        return super().__get__(instance, owner)
 
     def validate(self, value):
         if not isinstance(value, (Document, DBRef, dict, SON)):
-            self.error('GenericReferences can only contain documents')
+            self.error("GenericReferences can only contain documents")
 
         if isinstance(value, (dict, SON)):
-            if '_ref' not in value or '_cls' not in value:
-                self.error('GenericReferences can only contain documents')
+            if "_ref" not in value or "_cls" not in value:
+                self.error("GenericReferences can only contain documents")
 
         # We need the id from the saved object to create the DBRef
         elif isinstance(value, Document) and value.id is None:
-            self.error('You can only reference documents once they have been'
-                       ' saved to the database')
+            self.error(
+                "You can only reference documents once they have been"
+                " saved to the database"
+            )
 
     def dereference(self, value):
-        doc_cls = get_document(value['_cls'])
-        reference = value['_ref']
+        doc_cls = get_document(value["_cls"])
+        reference = value["_ref"]
         doc = doc_cls._get_db().dereference(reference)
         if doc is not None:
             doc = doc_cls._from_son(doc)
@@ -1399,7 +1539,7 @@ class GenericReferenceField(BaseField):
         if isinstance(document, (dict, SON, ObjectId, DBRef)):
             return document
 
-        id_field_name = document.__class__._meta['id_field']
+        id_field_name = document.__class__._meta["id_field"]
         id_field = document.__class__._fields[id_field_name]
 
         if isinstance(document, Document):
@@ -1407,18 +1547,17 @@ class GenericReferenceField(BaseField):
             id_ = document.id
             if id_ is None:
                 # XXX ValidationError raised outside of the "validate" method.
-                self.error('You can only reference documents once they have'
-                           ' been saved to the database')
+                self.error(
+                    "You can only reference documents once they have"
+                    " been saved to the database"
+                )
         else:
             id_ = document
 
         id_ = id_field.to_mongo(id_)
         collection = document._get_collection_name()
         ref = DBRef(collection, id_)
-        return SON((
-            ('_cls', document._class_name),
-            ('_ref', ref)
-        ))
+        return SON((("_cls", document._class_name), ("_ref", ref)))
 
     def prepare_query_value(self, op, value):
         if value is None:
@@ -1432,45 +1571,107 @@ class BinaryField(BaseField):
 
     def __init__(self, max_bytes=None, **kwargs):
         self.max_bytes = max_bytes
-        super(BinaryField, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def __set__(self, instance, value):
         """Handle bytearrays in python 3.1"""
-        if six.PY3 and isinstance(value, bytearray):
-            value = six.binary_type(value)
-        return super(BinaryField, self).__set__(instance, value)
+        if isinstance(value, bytearray):
+            value = bytes(value)
+        return super().__set__(instance, value)
 
     def to_mongo(self, value):
         return Binary(value)
 
     def validate(self, value):
-        if not isinstance(value, (six.binary_type, six.text_type, Binary)):
-            self.error('BinaryField only accepts instances of '
-                       '(%s, %s, Binary)' % (
-                           six.binary_type.__name__, six.text_type.__name__))
+        if not isinstance(value, (bytes, Binary)):
+            self.error(
+                "BinaryField only accepts instances of "
+                "(%s, %s, Binary)" % (bytes.__name__, Binary.__name__)
+            )
 
         if self.max_bytes is not None and len(value) > self.max_bytes:
-            self.error('Binary value is too long')
+            self.error("Binary value is too long")
+
+    def prepare_query_value(self, op, value):
+        if value is None:
+            return value
+        return super().prepare_query_value(op, self.to_mongo(value))
+
+
+class EnumField(BaseField):
+    """Enumeration Field. Values are stored underneath as is,
+    so it will only work with simple types (str, int, etc) that
+    are bson encodable
+     Example usage:
+    .. code-block:: python
+
+        class Status(Enum):
+            NEW = 'new'
+            DONE = 'done'
+
+        class ModelWithEnum(Document):
+            status = EnumField(Status, default=Status.NEW)
+
+        ModelWithEnum(status='done')
+        ModelWithEnum(status=Status.DONE)
+
+    Enum fields can be searched using enum or its value:
+    .. code-block:: python
+
+        ModelWithEnum.objects(status='new').count()
+        ModelWithEnum.objects(status=Status.NEW).count()
+
+    Note that choices cannot be set explicitly, they are derived
+    from the provided enum class.
+    """
+
+    def __init__(self, enum, **kwargs):
+        self._enum_cls = enum
+        if "choices" in kwargs:
+            raise ValueError(
+                "'choices' can't be set on EnumField, "
+                "it is implicitly set as the enum class"
+            )
+        kwargs["choices"] = list(self._enum_cls)  # Implicit validator
+        super().__init__(**kwargs)
+
+    def __set__(self, instance, value):
+        is_legal_value = value is None or isinstance(value, self._enum_cls)
+        if not is_legal_value:
+            try:
+                value = self._enum_cls(value)
+            except Exception:
+                pass
+        return super().__set__(instance, value)
+
+    def to_mongo(self, value):
+        if isinstance(value, self._enum_cls):
+            return value.value
+        return value
+
+    def prepare_query_value(self, op, value):
+        if value is None:
+            return value
+        return super().prepare_query_value(op, self.to_mongo(value))
 
 
 class GridFSError(Exception):
     pass
 
 
-class GridFSProxy(object):
-    """Proxy object to handle writing and reading of files to and from GridFS
-
-    .. versionadded:: 0.4
-    .. versionchanged:: 0.5 - added optional size param to read
-    .. versionchanged:: 0.6 - added collection name param
-    """
+class GridFSProxy:
+    """Proxy object to handle writing and reading of files to and from GridFS"""
 
     _fs = None
 
-    def __init__(self, grid_id=None, key=None,
-                 instance=None,
-                 db_alias=DEFAULT_CONNECTION_NAME,
-                 collection_name='fs'):
+    def __init__(
+        self,
+        grid_id=None,
+        key=None,
+        instance=None,
+        db_alias=DEFAULT_CONNECTION_NAME,
+        collection_name="fs",
+    ):
         self.grid_id = grid_id  # Store GridFS id for file
         self.key = key
         self.instance = instance
@@ -1480,8 +1681,16 @@ class GridFSProxy(object):
         self.gridout = None
 
     def __getattr__(self, name):
-        attrs = ('_fs', 'grid_id', 'key', 'instance', 'db_alias',
-                 'collection_name', 'newfile', 'gridout')
+        attrs = (
+            "_fs",
+            "grid_id",
+            "key",
+            "instance",
+            "db_alias",
+            "collection_name",
+            "newfile",
+            "gridout",
+        )
         if name in attrs:
             return self.__getattribute__(name)
         obj = self.get()
@@ -1492,12 +1701,12 @@ class GridFSProxy(object):
     def __get__(self, instance, value):
         return self
 
-    def __nonzero__(self):
+    def __bool__(self):
         return bool(self.grid_id)
 
     def __getstate__(self):
         self_dict = self.__dict__
-        self_dict['_fs'] = None
+        self_dict["_fs"] = None
         return self_dict
 
     def __copy__(self):
@@ -1509,18 +1718,20 @@ class GridFSProxy(object):
         return self.__copy__()
 
     def __repr__(self):
-        return '<%s: %s>' % (self.__class__.__name__, self.grid_id)
+        return f"<{self.__class__.__name__}: {self.grid_id}>"
 
     def __str__(self):
-        name = getattr(
-            self.get(), 'filename', self.grid_id) if self.get() else '(no file)'
-        return '<%s: %s>' % (self.__class__.__name__, name)
+        gridout = self.get()
+        filename = gridout.filename if gridout else "<no file>"
+        return f"<{self.__class__.__name__}: {filename} ({self.grid_id})>"
 
     def __eq__(self, other):
         if isinstance(other, GridFSProxy):
-            return ((self.grid_id == other.grid_id) and
-                    (self.collection_name == other.collection_name) and
-                    (self.db_alias == other.db_alias))
+            return (
+                (self.grid_id == other.grid_id)
+                and (self.collection_name == other.collection_name)
+                and (self.db_alias == other.db_alias)
+            )
         else:
             return False
 
@@ -1530,8 +1741,7 @@ class GridFSProxy(object):
     @property
     def fs(self):
         if not self._fs:
-            self._fs = gridfs.GridFS(
-                get_db(self.db_alias), self.collection_name)
+            self._fs = gridfs.GridFS(get_db(self.db_alias), self.collection_name)
         return self._fs
 
     def get(self, grid_id=None):
@@ -1556,16 +1766,20 @@ class GridFSProxy(object):
 
     def put(self, file_obj, **kwargs):
         if self.grid_id:
-            raise GridFSError('This document already has a file. Either delete '
-                              'it or call replace to overwrite it')
+            raise GridFSError(
+                "This document already has a file. Either delete "
+                "it or call replace to overwrite it"
+            )
         self.grid_id = self.fs.put(file_obj, **kwargs)
         self._mark_as_changed()
 
     def write(self, string):
         if self.grid_id:
             if not self.newfile:
-                raise GridFSError('This document already has a file. Either '
-                                  'delete it or call replace to overwrite it')
+                raise GridFSError(
+                    "This document already has a file. Either "
+                    "delete it or call replace to overwrite it"
+                )
         else:
             self.new_file()
         self.newfile.write(string)
@@ -1584,7 +1798,7 @@ class GridFSProxy(object):
             try:
                 return gridout.read(size)
             except Exception:
-                return ''
+                return ""
 
     def delete(self):
         # Delete file from GridFS, FileField still remains
@@ -1608,17 +1822,14 @@ class GridFSProxy(object):
 
 
 class FileField(BaseField):
-    """A GridFS storage field.
+    """A GridFS storage field."""
 
-    .. versionadded:: 0.4
-    .. versionchanged:: 0.5 added optional size param for read
-    .. versionchanged:: 0.6 added db_alias for multidb support
-    """
     proxy_class = GridFSProxy
 
-    def __init__(self, db_alias=DEFAULT_CONNECTION_NAME, collection_name='fs',
-                 **kwargs):
-        super(FileField, self).__init__(**kwargs)
+    def __init__(
+        self, db_alias=DEFAULT_CONNECTION_NAME, collection_name="fs", **kwargs
+    ):
+        super().__init__(**kwargs)
         self.collection_name = collection_name
         self.db_alias = db_alias
 
@@ -1640,9 +1851,8 @@ class FileField(BaseField):
     def __set__(self, instance, value):
         key = self.name
         if (
-            (hasattr(value, 'read') and not isinstance(value, GridFSProxy)) or
-            isinstance(value, (six.binary_type, six.string_types))
-        ):
+            hasattr(value, "read") and not isinstance(value, GridFSProxy)
+        ) or isinstance(value, (bytes, str)):
             # using "FileField() = file/string" notation
             grid_file = instance._data.get(self.name)
             # If a file already exists, delete it
@@ -1653,8 +1863,7 @@ class FileField(BaseField):
                     pass
 
             # Create a new proxy object as we don't already have one
-            instance._data[key] = self.get_proxy_obj(
-                key=key, instance=instance)
+            instance._data[key] = self.get_proxy_obj(key=key, instance=instance)
             instance._data[key].put(value)
         else:
             instance._data[key] = value
@@ -1667,9 +1876,12 @@ class FileField(BaseField):
         if collection_name is None:
             collection_name = self.collection_name
 
-        return self.proxy_class(key=key, instance=instance,
-                                db_alias=db_alias,
-                                collection_name=collection_name)
+        return self.proxy_class(
+            key=key,
+            instance=instance,
+            db_alias=db_alias,
+            collection_name=collection_name,
+        )
 
     def to_mongo(self, value):
         # Store the GridFS file id in MongoDB
@@ -1679,24 +1891,20 @@ class FileField(BaseField):
 
     def to_python(self, value):
         if value is not None:
-            return self.proxy_class(value,
-                                    collection_name=self.collection_name,
-                                    db_alias=self.db_alias)
+            return self.proxy_class(
+                value, collection_name=self.collection_name, db_alias=self.db_alias
+            )
 
     def validate(self, value):
         if value.grid_id is not None:
             if not isinstance(value, self.proxy_class):
-                self.error('FileField only accepts GridFSProxy values')
+                self.error("FileField only accepts GridFSProxy values")
             if not isinstance(value.grid_id, ObjectId):
-                self.error('Invalid GridFSProxy value')
+                self.error("Invalid GridFSProxy value")
 
 
 class ImageGridFsProxy(GridFSProxy):
-    """
-    Proxy for ImageField
-
-    versionadded: 0.6
-    """
+    """Proxy for ImageField"""
 
     def put(self, file_obj, **kwargs):
         """
@@ -1705,52 +1913,51 @@ class ImageGridFsProxy(GridFSProxy):
         """
         field = self.instance._fields[self.key]
         # Handle nested fields
-        if hasattr(field, 'field') and isinstance(field.field, FileField):
+        if hasattr(field, "field") and isinstance(field.field, FileField):
             field = field.field
 
         try:
             img = Image.open(file_obj)
             img_format = img.format
         except Exception as e:
-            raise ValidationError('Invalid image: %s' % e)
+            raise ValidationError("Invalid image: %s" % e)
 
         # Progressive JPEG
         # TODO: fixme, at least unused, at worst bad implementation
-        progressive = img.info.get('progressive') or False
+        progressive = img.info.get("progressive") or False
 
-        if (kwargs.get('progressive') and
-                isinstance(kwargs.get('progressive'), bool) and
-                img_format == 'JPEG'):
+        if (
+            kwargs.get("progressive")
+            and isinstance(kwargs.get("progressive"), bool)
+            and img_format == "JPEG"
+        ):
             progressive = True
         else:
             progressive = False
 
-        if (field.size and (img.size[0] > field.size['width'] or
-                            img.size[1] > field.size['height'])):
+        if field.size and (
+            img.size[0] > field.size["width"] or img.size[1] > field.size["height"]
+        ):
             size = field.size
 
-            if size['force']:
-                img = ImageOps.fit(img,
-                                   (size['width'],
-                                    size['height']),
-                                   Image.ANTIALIAS)
+            if size["force"]:
+                img = ImageOps.fit(
+                    img, (size["width"], size["height"]), Image.ANTIALIAS
+                )
             else:
-                img.thumbnail((size['width'],
-                               size['height']),
-                              Image.ANTIALIAS)
+                img.thumbnail((size["width"], size["height"]), Image.ANTIALIAS)
 
         thumbnail = None
         if field.thumbnail_size:
             size = field.thumbnail_size
 
-            if size['force']:
+            if size["force"]:
                 thumbnail = ImageOps.fit(
-                    img, (size['width'], size['height']), Image.ANTIALIAS)
+                    img, (size["width"], size["height"]), Image.ANTIALIAS
+                )
             else:
                 thumbnail = img.copy()
-                thumbnail.thumbnail((size['width'],
-                                     size['height']),
-                                    Image.ANTIALIAS)
+                thumbnail.thumbnail((size["width"], size["height"]), Image.ANTIALIAS)
 
         if thumbnail:
             thumb_id = self._put_thumbnail(thumbnail, img_format, progressive)
@@ -1759,16 +1966,13 @@ class ImageGridFsProxy(GridFSProxy):
 
         w, h = img.size
 
-        io = StringIO()
+        io = BytesIO()
         img.save(io, img_format, progressive=progressive)
         io.seek(0)
 
-        return super(ImageGridFsProxy, self).put(io,
-                                                 width=w,
-                                                 height=h,
-                                                 format=img_format,
-                                                 thumbnail_id=thumb_id,
-                                                 **kwargs)
+        return super().put(
+            io, width=w, height=h, format=img_format, thumbnail_id=thumb_id, **kwargs
+        )
 
     def delete(self, *args, **kwargs):
         # deletes thumbnail
@@ -1776,19 +1980,16 @@ class ImageGridFsProxy(GridFSProxy):
         if out and out.thumbnail_id:
             self.fs.delete(out.thumbnail_id)
 
-        return super(ImageGridFsProxy, self).delete()
+        return super().delete()
 
     def _put_thumbnail(self, thumbnail, format, progressive, **kwargs):
         w, h = thumbnail.size
 
-        io = StringIO()
+        io = BytesIO()
         thumbnail.save(io, format, progressive=progressive)
         io.seek(0)
 
-        return self.fs.put(io, width=w,
-                           height=h,
-                           format=format,
-                           **kwargs)
+        return self.fs.put(io, width=w, height=h, format=format, **kwargs)
 
     @property
     def size(self):
@@ -1834,46 +2035,34 @@ class ImageField(FileField):
     """
     A Image File storage field.
 
-    @size (width, height, force):
-        max size to store images, if larger will be automatically resized
-        ex: size=(800, 600, True)
-
-    @thumbnail (width, height, force):
-        size to generate a thumbnail
-
-    .. versionadded:: 0.6
+    :param size: max size to store images, provided as (width, height, force)
+        if larger, it will be automatically resized (ex: size=(800, 600, True))
+    :param thumbnail_size: size to generate a thumbnail, provided as (width, height, force)
     """
+
     proxy_class = ImageGridFsProxy
 
-    def __init__(self, size=None, thumbnail_size=None,
-                 collection_name='images', **kwargs):
+    def __init__(
+        self, size=None, thumbnail_size=None, collection_name="images", **kwargs
+    ):
         if not Image:
-            raise ImproperlyConfigured('PIL library was not found')
+            raise ImproperlyConfigured("PIL library was not found")
 
-        params_size = ('width', 'height', 'force')
-        extra_args = {
-            'size': size,
-            'thumbnail_size': thumbnail_size
-        }
+        params_size = ("width", "height", "force")
+        extra_args = {"size": size, "thumbnail_size": thumbnail_size}
         for att_name, att in extra_args.items():
             value = None
             if isinstance(att, (tuple, list)):
-                if six.PY3:
-                    value = dict(itertools.zip_longest(params_size, att,
-                                                       fillvalue=None))
-                else:
-                    value = dict(map(None, params_size, att))
+                value = dict(itertools.zip_longest(params_size, att, fillvalue=None))
 
             setattr(self, att_name, value)
 
-        super(ImageField, self).__init__(
-            collection_name=collection_name,
-            **kwargs)
+        super().__init__(collection_name=collection_name, **kwargs)
 
 
 class SequenceField(BaseField):
     """Provides a sequential counter see:
-     http://www.mongodb.org/display/DOCS/Object+IDs#ObjectIDs-SequenceNumbers
+     https://docs.mongodb.com/manual/reference/method/ObjectId/#ObjectIDs-SequenceNumbers
 
     .. note::
 
@@ -1896,47 +2085,57 @@ class SequenceField(BaseField):
         In case the counter is defined in the abstract document, it will be
         common to all inherited documents and the default sequence name will
         be the class name of the abstract document.
-
-    .. versionadded:: 0.5
-    .. versionchanged:: 0.8 added `value_decorator`
     """
 
     _auto_gen = True
-    COLLECTION_NAME = 'mongoengine.counters'
+    COLLECTION_NAME = "mongoengine.counters"
     VALUE_DECORATOR = int
 
-    def __init__(self, collection_name=None, db_alias=None, sequence_name=None,
-                 value_decorator=None, *args, **kwargs):
+    def __init__(
+        self,
+        collection_name=None,
+        db_alias=None,
+        sequence_name=None,
+        value_decorator=None,
+        *args,
+        **kwargs,
+    ):
         self.collection_name = collection_name or self.COLLECTION_NAME
         self.db_alias = db_alias or DEFAULT_CONNECTION_NAME
         self.sequence_name = sequence_name
-        self.value_decorator = (callable(value_decorator) and
-                                value_decorator or self.VALUE_DECORATOR)
-        super(SequenceField, self).__init__(*args, **kwargs)
+        self.value_decorator = (
+            value_decorator if callable(value_decorator) else self.VALUE_DECORATOR
+        )
+        super().__init__(*args, **kwargs)
 
     def generate(self):
         """
         Generate and Increment the counter
         """
         sequence_name = self.get_sequence_name()
-        sequence_id = '%s.%s' % (sequence_name, self.name)
+        sequence_id = f"{sequence_name}.{self.name}"
         collection = get_db(alias=self.db_alias)[self.collection_name]
-        counter = collection.find_and_modify(query={'_id': sequence_id},
-                                             update={'$inc': {'next': 1}},
-                                             new=True,
-                                             upsert=True)
-        return self.value_decorator(counter['next'])
+
+        counter = collection.find_one_and_update(
+            filter={"_id": sequence_id},
+            update={"$inc": {"next": 1}},
+            return_document=ReturnDocument.AFTER,
+            upsert=True,
+        )
+        return self.value_decorator(counter["next"])
 
     def set_next_value(self, value):
         """Helper method to set the next sequence value"""
         sequence_name = self.get_sequence_name()
-        sequence_id = "%s.%s" % (sequence_name, self.name)
+        sequence_id = f"{sequence_name}.{self.name}"
         collection = get_db(alias=self.db_alias)[self.collection_name]
-        counter = collection.find_and_modify(query={"_id": sequence_id},
-                                             update={"$set": {"next": value}},
-                                             new=True,
-                                             upsert=True)
-        return self.value_decorator(counter['next'])
+        counter = collection.find_one_and_update(
+            filter={"_id": sequence_id},
+            update={"$set": {"next": value}},
+            return_document=ReturnDocument.AFTER,
+            upsert=True,
+        )
+        return self.value_decorator(counter["next"])
 
     def get_next_value(self):
         """Helper method to get the next value for previewing.
@@ -1945,12 +2144,12 @@ class SequenceField(BaseField):
         as it is only fixed on set.
         """
         sequence_name = self.get_sequence_name()
-        sequence_id = '%s.%s' % (sequence_name, self.name)
+        sequence_id = f"{sequence_name}.{self.name}"
         collection = get_db(alias=self.db_alias)[self.collection_name]
-        data = collection.find_one({'_id': sequence_id})
+        data = collection.find_one({"_id": sequence_id})
 
         if data:
-            return self.value_decorator(data['next'] + 1)
+            return self.value_decorator(data["next"] + 1)
 
         return self.value_decorator(1)
 
@@ -1958,14 +2157,17 @@ class SequenceField(BaseField):
         if self.sequence_name:
             return self.sequence_name
         owner = self.owner_document
-        if issubclass(owner, Document) and not owner._meta.get('abstract'):
+        if issubclass(owner, Document) and not owner._meta.get("abstract"):
             return owner._get_collection_name()
         else:
-            return ''.join('_%s' % c if c.isupper() else c
-                           for c in owner._class_name).strip('_').lower()
+            return (
+                "".join("_%s" % c if c.isupper() else c for c in owner._class_name)
+                .strip("_")
+                .lower()
+            )
 
     def __get__(self, instance, owner):
-        value = super(SequenceField, self).__get__(instance, owner)
+        value = super().__get__(instance, owner)
         if value is None and instance._initialised:
             value = self.generate()
             instance._data[self.name] = value
@@ -1978,7 +2180,7 @@ class SequenceField(BaseField):
         if value is None and instance._initialised:
             value = self.generate()
 
-        return super(SequenceField, self).__set__(instance, value)
+        return super().__set__(instance, value)
 
     def prepare_query_value(self, op, value):
         """
@@ -1995,10 +2197,8 @@ class SequenceField(BaseField):
 
 
 class UUIDField(BaseField):
-    """A UUID field.
+    """A UUID field."""
 
-    .. versionadded:: 0.6
-    """
     _binary = None
 
     def __init__(self, binary=True, **kwargs):
@@ -2006,28 +2206,25 @@ class UUIDField(BaseField):
         Store UUID data in the database
 
         :param binary: if False store as a string.
-
-        .. versionchanged:: 0.8.0
-        .. versionchanged:: 0.6.19
         """
         self._binary = binary
-        super(UUIDField, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def to_python(self, value):
         if not self._binary:
             original_value = value
             try:
-                if not isinstance(value, six.string_types):
-                    value = six.text_type(value)
+                if not isinstance(value, str):
+                    value = str(value)
                 return uuid.UUID(value)
-            except Exception:
+            except (ValueError, TypeError, AttributeError):
                 return original_value
         return value
 
     def to_mongo(self, value):
         if not self._binary:
-            return six.text_type(value)
-        elif isinstance(value, six.string_types):
+            return str(value)
+        elif isinstance(value, str):
             return uuid.UUID(value)
         return value
 
@@ -2038,12 +2235,12 @@ class UUIDField(BaseField):
 
     def validate(self, value):
         if not isinstance(value, uuid.UUID):
-            if not isinstance(value, six.string_types):
+            if not isinstance(value, str):
                 value = str(value)
             try:
                 uuid.UUID(value)
-            except Exception as exc:
-                self.error('Could not convert to UUID: %s' % exc)
+            except (ValueError, TypeError, AttributeError) as exc:
+                self.error("Could not convert to UUID: %s" % exc)
 
 
 class GeoPointField(BaseField):
@@ -2053,8 +2250,6 @@ class GeoPointField(BaseField):
         representing a geo point. It admits 2d indexes but not "2dsphere" indexes
         in MongoDB > 2.4 which are more natural for modeling geospatial points.
         See :ref:`geospatial-indexes`
-
-    .. versionadded:: 0.4
     """
 
     _geo_index = pymongo.GEO2D
@@ -2062,16 +2257,14 @@ class GeoPointField(BaseField):
     def validate(self, value):
         """Make sure that a geo-value is of type (x, y)"""
         if not isinstance(value, (list, tuple)):
-            self.error('GeoPointField can only accept tuples or lists '
-                       'of (x, y)')
+            self.error("GeoPointField can only accept tuples or lists of (x, y)")
 
         if not len(value) == 2:
-            self.error('Value (%s) must be a two-dimensional point' %
-                       repr(value))
-        elif (not isinstance(value[0], (float, int)) or
-              not isinstance(value[1], (float, int))):
-            self.error(
-                'Both values (%s) in point must be float or int' % repr(value))
+            self.error("Value (%s) must be a two-dimensional point" % repr(value))
+        elif not isinstance(value[0], (float, int)) or not isinstance(
+            value[1], (float, int)
+        ):
+            self.error("Both values (%s) in point must be float or int" % repr(value))
 
 
 class PointField(GeoJsonBaseField):
@@ -2088,10 +2281,9 @@ class PointField(GeoJsonBaseField):
     to set the value.
 
     Requires mongodb >= 2.4
-
-    .. versionadded:: 0.8
     """
-    _type = 'Point'
+
+    _type = "Point"
 
 
 class LineStringField(GeoJsonBaseField):
@@ -2102,15 +2294,14 @@ class LineStringField(GeoJsonBaseField):
     .. code-block:: js
 
         {'type' : 'LineString' ,
-         'coordinates' : [[x1, y1], [x1, y1] ... [xn, yn]]}
+         'coordinates' : [[x1, y1], [x2, y2] ... [xn, yn]]}
 
     You can either pass a dict with the full information or a list of points.
 
     Requires mongodb >= 2.4
-
-    .. versionadded:: 0.8
     """
-    _type = 'LineString'
+
+    _type = "LineString"
 
 
 class PolygonField(GeoJsonBaseField):
@@ -2129,10 +2320,9 @@ class PolygonField(GeoJsonBaseField):
     holes.
 
     Requires mongodb >= 2.4
-
-    .. versionadded:: 0.8
     """
-    _type = 'Polygon'
+
+    _type = "Polygon"
 
 
 class MultiPointField(GeoJsonBaseField):
@@ -2149,10 +2339,9 @@ class MultiPointField(GeoJsonBaseField):
     to set the value.
 
     Requires mongodb >= 2.6
-
-    .. versionadded:: 0.9
     """
-    _type = 'MultiPoint'
+
+    _type = "MultiPoint"
 
 
 class MultiLineStringField(GeoJsonBaseField):
@@ -2169,10 +2358,9 @@ class MultiLineStringField(GeoJsonBaseField):
     You can either pass a dict with the full information or a list of points.
 
     Requires mongodb >= 2.6
-
-    .. versionadded:: 0.9
     """
-    _type = 'MultiLineString'
+
+    _type = "MultiLineString"
 
 
 class MultiPolygonField(GeoJsonBaseField):
@@ -2196,10 +2384,9 @@ class MultiPolygonField(GeoJsonBaseField):
     of Polygons.
 
     Requires mongodb >= 2.6
-
-    .. versionadded:: 0.9
     """
-    _type = 'MultiPolygon'
+
+    _type = "MultiPolygon"
 
 
 class LazyReferenceField(BaseField):
@@ -2209,12 +2396,16 @@ class LazyReferenceField(BaseField):
     Instead, access will return a :class:`~mongoengine.base.LazyReference` class
     instance, allowing access to `pk` or manual dereference by using
     ``fetch()`` method.
-
-    .. versionadded:: 0.15
     """
 
-    def __init__(self, document_type, passthrough=False, dbref=False,
-                 reverse_delete_rule=DO_NOTHING, **kwargs):
+    def __init__(
+        self,
+        document_type,
+        passthrough=False,
+        dbref=False,
+        reverse_delete_rule=DO_NOTHING,
+        **kwargs,
+    ):
         """Initialises the Reference Field.
 
         :param dbref:  Store the reference as :class:`~pymongo.dbref.DBRef`
@@ -2222,27 +2413,28 @@ class LazyReferenceField(BaseField):
         :param reverse_delete_rule: Determines what to do when the referring
           object is deleted
         :param passthrough: When trying to access unknown fields, the
-        :class:`~mongoengine.base.datastructure.LazyReference` instance will
-        automatically call `fetch()` and try to retrive the field on the fetched
-        document. Note this only work getting field (not setting or deleting).
+          :class:`~mongoengine.base.datastructure.LazyReference` instance will
+          automatically call `fetch()` and try to retrieve the field on the fetched
+          document. Note this only work getting field (not setting or deleting).
         """
         # XXX ValidationError raised outside of the "validate" method.
-        if (
-            not isinstance(document_type, six.string_types) and
-            not issubclass(document_type, Document)
+        if not isinstance(document_type, str) and not issubclass(
+            document_type, Document
         ):
-            self.error('Argument to LazyReferenceField constructor must be a '
-                       'document class or a string')
+            self.error(
+                "Argument to LazyReferenceField constructor must be a "
+                "document class or a string"
+            )
 
         self.dbref = dbref
         self.passthrough = passthrough
         self.document_type_obj = document_type
         self.reverse_delete_rule = reverse_delete_rule
-        super(LazyReferenceField, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     @property
     def document_type(self):
-        if isinstance(self.document_type_obj, six.string_types):
+        if isinstance(self.document_type_obj, str):
             if self.document_type_obj == RECURSIVE_REFERENCE_CONSTANT:
                 self.document_type_obj = self.owner_document
             else:
@@ -2252,15 +2444,23 @@ class LazyReferenceField(BaseField):
     def build_lazyref(self, value):
         if isinstance(value, LazyReference):
             if value.passthrough != self.passthrough:
-                value = LazyReference(value.document_type, value.pk, passthrough=self.passthrough)
+                value = LazyReference(
+                    value.document_type, value.pk, passthrough=self.passthrough
+                )
         elif value is not None:
             if isinstance(value, self.document_type):
-                value = LazyReference(self.document_type, value.pk, passthrough=self.passthrough)
+                value = LazyReference(
+                    self.document_type, value.pk, passthrough=self.passthrough
+                )
             elif isinstance(value, DBRef):
-                value = LazyReference(self.document_type, value.id, passthrough=self.passthrough)
+                value = LazyReference(
+                    self.document_type, value.id, passthrough=self.passthrough
+                )
             else:
                 # value is the primary key of the referenced document
-                value = LazyReference(self.document_type, value, passthrough=self.passthrough)
+                value = LazyReference(
+                    self.document_type, value, passthrough=self.passthrough
+                )
         return value
 
     def __get__(self, instance, owner):
@@ -2273,7 +2473,7 @@ class LazyReferenceField(BaseField):
         if value:
             instance._data[self.name] = value
 
-        return super(LazyReferenceField, self).__get__(instance, owner)
+        return super().__get__(instance, owner)
 
     def to_mongo(self, value):
         if isinstance(value, LazyReference):
@@ -2285,7 +2485,7 @@ class LazyReferenceField(BaseField):
         else:
             # value is the primary key of the referenced document
             pk = value
-        id_field_name = self.document_type._meta['id_field']
+        id_field_name = self.document_type._meta["id_field"]
         id_field = self.document_type._fields[id_field_name]
         pk = id_field.to_mongo(pk)
         if self.dbref:
@@ -2293,10 +2493,18 @@ class LazyReferenceField(BaseField):
         else:
             return pk
 
+    def to_python(self, value):
+        """Convert a MongoDB-compatible type to a Python type."""
+        if not isinstance(value, (DBRef, Document, EmbeddedDocument)):
+            collection = self.document_type._get_collection_name()
+            value = DBRef(collection, self.document_type.id.to_python(value))
+            value = self.build_lazyref(value)
+        return value
+
     def validate(self, value):
         if isinstance(value, LazyReference):
             if value.collection != self.document_type._get_collection_name():
-                self.error('Reference must be on a `%s` document.' % self.document_type)
+                self.error("Reference must be on a `%s` document." % self.document_type)
             pk = value.pk
         elif isinstance(value, self.document_type):
             pk = value.pk
@@ -2308,7 +2516,7 @@ class LazyReferenceField(BaseField):
             pk = value.id
         else:
             # value is the primary key of the referenced document
-            id_field_name = self.document_type._meta['id_field']
+            id_field_name = self.document_type._meta["id_field"]
             id_field = getattr(self.document_type, id_field_name)
             pk = value
             try:
@@ -2317,16 +2525,20 @@ class LazyReferenceField(BaseField):
                 self.error(
                     "value should be `{0}` document, LazyReference or DBRef on `{0}` "
                     "or `{0}`'s primary key (i.e. `{1}`)".format(
-                        self.document_type.__name__, type(id_field).__name__))
+                        self.document_type.__name__, type(id_field).__name__
+                    )
+                )
 
         if pk is None:
-            self.error('You can only reference documents once they have been '
-                       'saved to the database')
+            self.error(
+                "You can only reference documents once they have been "
+                "saved to the database"
+            )
 
     def prepare_query_value(self, op, value):
         if value is None:
             return None
-        super(LazyReferenceField, self).prepare_query_value(op, value)
+        super().prepare_query_value(op, value)
         return self.to_mongo(value)
 
     def lookup_member(self, member_name):
@@ -2347,28 +2559,34 @@ class GenericLazyReferenceField(GenericReferenceField):
           it.
 
         * You can use the choices param to limit the acceptable Document types
-
-    .. versionadded:: 0.15
     """
 
     def __init__(self, *args, **kwargs):
-        self.passthrough = kwargs.pop('passthrough', False)
-        super(GenericLazyReferenceField, self).__init__(*args, **kwargs)
+        self.passthrough = kwargs.pop("passthrough", False)
+        super().__init__(*args, **kwargs)
 
     def _validate_choices(self, value):
         if isinstance(value, LazyReference):
             value = value.document_type._class_name
-        super(GenericLazyReferenceField, self)._validate_choices(value)
+        super()._validate_choices(value)
 
     def build_lazyref(self, value):
         if isinstance(value, LazyReference):
             if value.passthrough != self.passthrough:
-                value = LazyReference(value.document_type, value.pk, passthrough=self.passthrough)
+                value = LazyReference(
+                    value.document_type, value.pk, passthrough=self.passthrough
+                )
         elif value is not None:
             if isinstance(value, (dict, SON)):
-                value = LazyReference(get_document(value['_cls']), value['_ref'].id, passthrough=self.passthrough)
+                value = LazyReference(
+                    get_document(value["_cls"]),
+                    value["_ref"].id,
+                    passthrough=self.passthrough,
+                )
             elif isinstance(value, Document):
-                value = LazyReference(type(value), value.pk, passthrough=self.passthrough)
+                value = LazyReference(
+                    type(value), value.pk, passthrough=self.passthrough
+                )
         return value
 
     def __get__(self, instance, owner):
@@ -2379,22 +2597,31 @@ class GenericLazyReferenceField(GenericReferenceField):
         if value:
             instance._data[self.name] = value
 
-        return super(GenericLazyReferenceField, self).__get__(instance, owner)
+        return super().__get__(instance, owner)
 
     def validate(self, value):
         if isinstance(value, LazyReference) and value.pk is None:
-            self.error('You can only reference documents once they have been'
-                       ' saved to the database')
-        return super(GenericLazyReferenceField, self).validate(value)
+            self.error(
+                "You can only reference documents once they have been"
+                " saved to the database"
+            )
+        return super().validate(value)
 
     def to_mongo(self, document):
         if document is None:
             return None
 
         if isinstance(document, LazyReference):
-            return SON((
-                ('_cls', document.document_type._class_name),
-                ('_ref', DBRef(document.document_type._get_collection_name(), document.pk))
-            ))
+            return SON(
+                (
+                    ("_cls", document.document_type._class_name),
+                    (
+                        "_ref",
+                        DBRef(
+                            document.document_type._get_collection_name(), document.pk
+                        ),
+                    ),
+                )
+            )
         else:
-            return super(GenericLazyReferenceField, self).to_mongo(document)
+            return super().to_mongo(document)

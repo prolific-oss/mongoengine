@@ -108,6 +108,19 @@ class TestDynamicDocument(MongoDBTestCase):
         p.reload()
         assert 122 == p.misc
 
+        with pytest.raises(Exception):
+            with run_in_transaction():
+                p.reload()
+                assert 122 == p.misc
+                p.misc = 22
+                p.save()
+                p.reload()
+                assert 22 == p.misc
+                raise Exception("test")
+
+        p.reload()
+        assert 122 == p.misc
+
     def test_reload_after_unsetting(self):
         p = self.Person()
         p.misc = 22

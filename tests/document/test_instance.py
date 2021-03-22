@@ -259,13 +259,8 @@ class TestDocumentInstance(MongoDBTestCase):
             # Save a reference to each animal
             zoo = Zoo(animals=Animal.objects)
             zoo.save()
-            print(Animal.objects)
-            print(Zoo.objects.first())
-            print(Zoo.objects.first().animals)
             classes = [a.__class__ for a in Zoo.objects.first().animals]
 
-        print(Animal.objects)
-        print(Zoo.objects.first().animals)
         assert classes == [Animal, Fish, Mammal, Dog, Human]
 
     def test_polymorphic_references(self):
@@ -548,10 +543,6 @@ class TestDocumentInstance(MongoDBTestCase):
 
             person.reload("age")
             assert person.name == "Test User"
-            assert person.age == 21
-
-            person.reload()
-            assert person.name == "Mr Test User"
             assert person.age == 21
 
             person.reload()

@@ -1,34 +1,29 @@
-from threading import local
 from typing import Optional
 
 from pymongo.client_session import ClientSession
 
 from mongoengine.connection import DEFAULT_CONNECTION_NAME
 
-sessions = local()
+_sessions = {}
 
 
 def set_local_session(db_alias: str, session: ClientSession):
-    sessions.__setattr__(key_local_session(db_alias), session)
+    _sessions[key_local_session(db_alias)] = session
 
 
 def get_local_session(
     db_alias: str = DEFAULT_CONNECTION_NAME,
 ) -> Optional[ClientSession]:
-    try:
-        session = sessions.__getattribute__(key_local_session(db_alias))
-        return session
-    except AttributeError:
-        return None
+    return _sessions.get(key_local_session(db_alias))
 
 
 def clear_local_session(db_alias: str = DEFAULT_CONNECTION_NAME):
-    sessions.__delattr__(key_local_session(db_alias))
+    _sessions.pop(key_local_session(db_alias), None)
 
 
 def clear_all():
-    global sessions
-    sessions = local()
+    global _sessions
+    _sessions = {}
 
 
 def key_local_session(db_alias):

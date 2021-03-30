@@ -7,14 +7,16 @@ from datetime import datetime
 
 import bson
 from bson import DBRef, ObjectId
+
 from pymongo.errors import DuplicateKeyError
+
 import pytest
 
 from mongoengine import *
 from mongoengine import signals
 from mongoengine.base import _document_registry, get_document
 from mongoengine.connection import get_db
-from mongoengine.context_managers import query_counter, switch_db
+from mongoengine.context_managers import query_counter, run_in_transaction, switch_db
 from mongoengine.errors import (
     FieldDoesNotExist,
     InvalidDocumentError,
@@ -195,6 +197,71 @@ class TestDocumentInstance(MongoDBTestCase):
         Actor.objects()
         self.Person.drop_collection()
         assert list(Actor.objects()) == []
+
+    def test_save_polymorphic_one_reference_run_in_transaction(self):
+        """Ensure that the correct subclasses are returned from a query
+        when using references / generic references
+        """
+
+        class Animal(Document):
+            meta = {"allow_inheritance": True}
+
+        class Fish(Animal):
+            pass
+
+        class FishBowl(Document):
+            fish = ReferenceField(Animal)
+
+        FishBowl.drop_collection()
+
+        with run_in_transaction():
+            Fish().save()
+
+            # Save a reference to each animal
+            zoo = FishBowl(fish=Animal.objects.first())
+            zoo.save()
+
+            assert Fish == FishBowl.objects.first().fish.__class__
+
+    def test_save_polymorphic_references_run_in_transaction(self):
+        """Ensure that the correct subclasses are returned from a query
+        when using references / generic references
+        """
+
+        class Animal(Document):
+            meta = {"allow_inheritance": True}
+
+        class Fish(Animal):
+            pass
+
+        class Mammal(Animal):
+            pass
+
+        class Dog(Mammal):
+            pass
+
+        class Human(Mammal):
+            pass
+
+        class Zoo(Document):
+            animals = ListField(ReferenceField(Animal))
+
+        Zoo.drop_collection()
+        Animal.drop_collection()
+
+        with run_in_transaction():
+            Animal().save()
+            Fish().save()
+            Mammal().save()
+            Dog().save()
+            Human().save()
+
+            # Save a reference to each animal
+            zoo = Zoo(animals=Animal.objects)
+            zoo.save()
+            classes = [a.__class__ for a in Zoo.objects.first().animals]
+
+        assert classes == [Animal, Fish, Mammal, Dog, Human]
 
     def test_polymorphic_references(self):
         """Ensure that the correct subclasses are returned from a query
@@ -411,6 +478,14 @@ class TestDocumentInstance(MongoDBTestCase):
         person.save()
         person.to_dbref()
 
+    def test_to_dbref_run_in_transaction(self):
+        """Ensure that you can get a dbref of a document."""
+        person = self.Person(name="Test User", age=30)
+
+        with run_in_transaction():
+            person.save()
+            person.to_dbref()
+
     def test_key_like_attribute_access(self):
         person = self.Person(age=30)
         assert person["age"] == 30
@@ -451,6 +526,28 @@ class TestDocumentInstance(MongoDBTestCase):
         person.reload()
         assert person.name == "Mr Test User"
         assert person.age == 21
+
+    def test_reload_run_in_transaction(self):
+        """Ensure that attributes may be reloaded."""
+        with run_in_transaction():
+            person = self.Person(name="Test User", age=20)
+            person.save()
+
+            person_obj = self.Person.objects.first()
+            person_obj.name = "Mr Test User"
+            person_obj.age = 21
+            person_obj.save()
+
+            assert person.name == "Test User"
+            assert person.age == 20
+
+            person.reload("age")
+            assert person.name == "Test User"
+            assert person.age == 21
+
+            person.reload()
+            assert person.name == "Mr Test User"
+            assert person.age == 21
 
     def test_reload_sharded(self):
         class Animal(Document):
@@ -983,6 +1080,41 @@ class TestDocumentInstance(MongoDBTestCase):
 
         assert self.Person._get_collection().find_one({"_id": doc1.pk})["age"] == 9
 
+    def test_modify_update_in_transaction(self):
+        other_doc = self.Person(name="bob", age=10).save()
+        doc = self.Person(
+            name="jim", age=20, job=self.Job(name="10gen", years=3)
+        ).save()
+
+        doc_copy = doc._from_son(doc.to_mongo())
+
+        with run_in_transaction():
+            n_modified = doc.modify(
+                set__age=21, set__job__name="MongoDB", unset__job__years=True
+            )
+            assert n_modified == 1
+
+        doc_copy.age = 21
+        doc_copy.job.name = "MongoDB"
+        del doc_copy.job.years
+
+        assert doc.to_json() == doc_copy.to_json()
+        assert doc._get_changed_fields() == []
+
+        self.assertDbEqual([dict(other_doc.to_mongo()), dict(doc.to_mongo())])
+
+        with pytest.raises(Exception, match="test"):
+            with run_in_transaction():
+                n_modified = doc.modify(set__age=121, set__job__name="Other DB")
+                assert n_modified == 1
+                raise Exception("test")
+
+        assert (
+            doc.to_json() != doc_copy.to_json()
+        )  # Data in the DB is not commited but the doc keeps the changes
+
+        self.assertDbEqual([dict(other_doc.to_mongo()), dict(doc_copy.to_mongo())])
+
     def test_modify_with_positional_push(self):
         class Content(EmbeddedDocument):
             keywords = ListField(StringField())
@@ -1021,6 +1153,23 @@ class TestDocumentInstance(MongoDBTestCase):
         # Create person object and save it to the database
         person = self.Person(name="Test User", age=30)
         person.save()
+
+        # Ensure that the object is in the database
+        raw_doc = get_as_pymongo(person)
+        assert raw_doc == {
+            "_cls": "Person",
+            "name": "Test User",
+            "age": 30,
+            "_id": person.id,
+        }
+
+    def test_save_run_in_transaction(self):
+        """Ensure that a document may be saved in the database."""
+
+        # Create person object and save it to the database
+        with run_in_transaction():
+            person = self.Person(name="Test User", age=30)
+            person.save()
 
         # Ensure that the object is in the database
         raw_doc = get_as_pymongo(person)
@@ -1138,6 +1287,28 @@ class TestDocumentInstance(MongoDBTestCase):
 
         p1.reload()
         assert p1.name == p.parent.name
+
+    def test_save_cascades_run_in_transaction(self):
+        class Person(Document):
+            name = StringField()
+            parent = ReferenceField("self")
+
+        Person.drop_collection()
+        with run_in_transaction():
+            p1 = Person(name="Wilson Snr")
+            p1.parent = None
+            p1.save()
+
+            p2 = Person(name="Wilson Jr")
+            p2.parent = p1
+            p2.save()
+
+            p = Person.objects(name="Wilson Jr").get()
+            p.parent.name = "Daddy Wilson"
+            p.save(cascade=True)
+
+            p1.reload()
+            assert p1.name == p.parent.name
 
     def test_save_cascade_kwargs(self):
         class Person(Document):
@@ -1436,6 +1607,92 @@ class TestDocumentInstance(MongoDBTestCase):
         person.name = None
         person.age = None
         person.save()
+
+        person.reload()
+        assert person.name is None
+        assert person.age is None
+
+    def test_update_run_in_transaction(self):
+        """Ensure that an existing document is updated instead of be
+        overwritten.
+        """
+        # Create person object and save it to the database
+        person = self.Person(name="Test User", age=30)
+        person.save()
+
+        with run_in_transaction():
+            # Create same person object, with same id, without age
+            same_person = self.Person(name="Test")
+            same_person.id = person.id
+            same_person.save()
+
+            # Confirm only one object
+            assert self.Person.objects.count() == 1
+
+            # reload
+            person.reload()
+            same_person.reload()
+
+            # Confirm the same
+            assert person == same_person
+            assert person.name == same_person.name
+            assert person.age == same_person.age
+
+            # Confirm the saved values
+            assert person.name == "Test"
+            assert person.age == 30
+
+            # Test only / exclude only updates included fields
+            person = self.Person.objects.only("name").get()
+            person.name = "User"
+            person.save()
+
+            person.reload()
+            assert person.name == "User"
+            assert person.age == 30
+
+            # test exclude only updates set fields
+            person = self.Person.objects.exclude("name").get()
+            person.age = 21
+            person.save()
+
+            person.reload()
+            assert person.name == "User"
+            assert person.age == 21
+
+            # Test only / exclude can set non excluded / included fields
+            person = self.Person.objects.only("name").get()
+            person.name = "Test"
+            person.age = 30
+            person.save()
+
+            person.reload()
+            assert person.name == "Test"
+            assert person.age == 30
+
+            # test exclude only updates set fields
+            person = self.Person.objects.exclude("name").get()
+            person.name = "User"
+            person.age = 21
+            person.save()
+
+            person.reload()
+            assert person.name == "User"
+            assert person.age == 21
+
+            # Confirm does remove unrequired fields
+            person = self.Person.objects.exclude("name").get()
+            person.age = None
+            person.save()
+
+            person.reload()
+            assert person.name == "User"
+            assert person.age is None
+
+            person = self.Person.objects.get()
+            person.name = None
+            person.age = None
+            person.save()
 
         person.reload()
         assert person.name is None

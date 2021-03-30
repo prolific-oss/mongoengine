@@ -11,17 +11,12 @@ on:
     tags:
       - 'v[0-9]+\.[0-9]+\.[0-9]+*'
 env:
-  MONGODB_3_6: 3.6.14
-  MONGODB_4_0: 4.0.23
-  MONGODB_4_2: 4.2
   MONGODB_4_4: 4.4
 
-  PYMONGO_3_4: 3.4
-  PYMONGO_3_6: 3.6
   PYMONGO_3_9: 3.9
   PYMONGO_3_11: 3.11
 
-  MAIN_PYTHON_VERSION: 3.7
+  MAIN_PYTHON_VERSION: 3.9
 
 jobs:
   linting:
@@ -42,19 +37,13 @@ jobs:
     # and against a few combination of MongoDB and pymongo
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
-        python-version: [3.6, 3.7, 3.8, 3.9, pypy3]
-        MONGODB: [$MONGODB_4_0]
-        PYMONGO: [$PYMONGO_3_11]
+        python-version: [3.6]
+        MONGODB: [$MONGODB_4_4]
+        PYMONGO: [$PYMONGO_3_9]
         include:
-          - python-version: 3.7
-            MONGODB: $MONGODB_3_6
-            PYMONGO: $PYMONGO_3_9
-          - python-version: 3.7
-            MONGODB: $MONGODB_4_2
-            PYMONGO: $PYMONGO_3_6
-          - python-version: 3.7
+          - python-version: 3.6
             MONGODB: $MONGODB_4_4
             PYMONGO: $PYMONGO_3_11
     steps:

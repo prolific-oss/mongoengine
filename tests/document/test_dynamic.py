@@ -3,6 +3,7 @@ import unittest
 import pytest
 
 from mongoengine import *
+from mongoengine.context_managers import run_in_transaction
 from tests.utils import MongoDBTestCase
 
 __all__ = ("TestDynamicDocument",)
@@ -91,12 +92,39 @@ class TestDynamicDocument(MongoDBTestCase):
         obj = collection.find_one()
         assert sorted(obj.keys()) == ["_cls", "_id", "name"]
 
+    def test_reload_run_in_transaction(self):
+        p = self.Person()
+        p.misc = 22
+        p.save()
+
+        with run_in_transaction():
+            p.reload()
+            assert 22 == p.misc
+            p.misc = 122
+            p.save()
+            p.reload()
+
+        assert 122 == p.misc
+
+        with pytest.raises(Exception):
+            with run_in_transaction():
+                p.reload()
+                assert 122 == p.misc
+                p.misc = 22
+                p.save()
+                p.reload()
+                assert 22 == p.misc
+                raise Exception("test")
+
+        p.reload()
+        assert 122 == p.misc
+
     def test_reload_after_unsetting(self):
         p = self.Person()
         p.misc = 22
         p.save()
         p.update(unset__misc=1)
-        p.reload()
+        p.reload()  # ?? no assertions
 
     def test_reload_dynamic_field(self):
         self.Person.objects.delete()

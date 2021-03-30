@@ -893,7 +893,9 @@ class DynamicField(BaseField):
         if isinstance(value, dict) and "_cls" in value:
             doc_cls = get_document(value["_cls"])
             if "_ref" in value:
-                value = doc_cls._get_db().dereference(value["_ref"])
+                value = doc_cls._get_db().dereference(
+                    value["_ref"], session=doc_cls._get_local_session()
+                )
             return doc_cls._from_son(value)
 
         return super().to_python(value)
@@ -1210,7 +1212,9 @@ class ReferenceField(BaseField):
                 cls = get_document(value.cls)
             else:
                 cls = self.document_type
-            dereferenced = cls._get_db().dereference(value)
+            dereferenced = cls._get_db().dereference(
+                value, session=cls._get_local_session()
+            )
             if dereferenced is None:
                 raise DoesNotExist("Trying to dereference unknown document %s" % value)
             else:
@@ -1339,7 +1343,9 @@ class CachedReferenceField(BaseField):
             collection = self.document_type._get_collection_name()
             value = DBRef(collection, self.document_type.id.to_python(value["_id"]))
             return self.document_type._from_son(
-                self.document_type._get_db().dereference(value)
+                self.document_type._get_db().dereference(
+                    value, session=self.document_type._get_local_session()
+                )
             )
 
         return value
@@ -1364,7 +1370,9 @@ class CachedReferenceField(BaseField):
 
         # Dereference DBRefs
         if auto_dereference and isinstance(value, DBRef):
-            dereferenced = self.document_type._get_db().dereference(value)
+            dereferenced = self.document_type._get_db().dereference(
+                value, session=self.document_type._get_local_session()
+            )
             if dereferenced is None:
                 raise DoesNotExist("Trying to dereference unknown document %s" % value)
             else:
@@ -1527,7 +1535,9 @@ class GenericReferenceField(BaseField):
     def dereference(self, value):
         doc_cls = get_document(value["_cls"])
         reference = value["_ref"]
-        doc = doc_cls._get_db().dereference(reference)
+        doc = doc_cls._get_db().dereference(
+            reference, session=doc_cls._get_local_session()
+        )
         if doc is not None:
             doc = doc_cls._from_son(doc)
         return doc
@@ -2501,7 +2511,7 @@ class LazyReferenceField(BaseField):
             value = self.build_lazyref(value)
         return value
 
-    def validate(self, value):
+    def validate(self, value, clean=True):
         if isinstance(value, LazyReference):
             if value.collection != self.document_type._get_collection_name():
                 self.error("Reference must be on a `%s` document." % self.document_type)

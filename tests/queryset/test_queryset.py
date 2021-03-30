@@ -14,6 +14,7 @@ from mongoengine.connection import get_db
 from mongoengine.context_managers import query_counter, switch_db
 from mongoengine.errors import InvalidQueryError
 from mongoengine.mongodb_support import MONGODB_36, get_mongodb_version
+from mongoengine.pymongo_support import IS_PYMONGO_GTE_311
 from mongoengine.queryset import (
     DoesNotExist,
     MultipleObjectsReturned,
@@ -5675,6 +5676,9 @@ class TestQueryset(unittest.TestCase):
 
     @requires_mongodb_gte_44
     def test_allow_disk_use(self):
+        if not IS_PYMONGO_GTE_311:
+            return
+
         qs = self.Person.objects()
         assert qs._cursor_args == {}
 

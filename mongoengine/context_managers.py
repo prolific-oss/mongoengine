@@ -60,19 +60,16 @@ class run_in_transaction(contextlib.ContextDecorator, contextlib.ExitStack):
         self.session = sessions.get_local_session(self.db_alias) # ClientSession or None
         if self.session:
             self.inner_session = True
-        else:
-            self.session = self.enter_context(self.conn.start_session())
-
-        if not self.session.in_transaction:
-            self.transaction = self.enter_context(self.session.start_transaction())
-        elif self.use_existing:
+            if not self.use_existing:
+                raise RuntimeError(
+                    "Trying to run_in_transaction while another run_in_transaction is "
+                    "in effect. Try passing use_existing=True.")
             self.transaction = None
         else:
-            raise RuntimeError(
-                "Trying to run_in_transaction while another run_in_transaction is "
-                "in effect. Try passing use_existing=True.")
+            self.session = self.enter_context(self.conn.start_session())
+            self.transaction = self.enter_context(self.session.start_transaction())
+            sessions.set_local_session(self.db_alias, self.session)
 
-        sessions.set_local_session(self.db_alias, self.session)
         return self.session
 
     def __exit__(self, t, value, traceback):

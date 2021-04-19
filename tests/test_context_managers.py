@@ -172,13 +172,11 @@ class TestContextManagers(unittest.TestCase):
         Group(name="level 1").save()
         assert 1 == Group.objects.count()
 
-        runner1 = run_in_transaction()
-        with runner1:
+        with run_in_transaction() as runner1:
             Group(name="level 2").save()
             assert 2 == Group.objects.count()
 
-            runner2 = run_in_transaction(use_existing=True)
-            with runner2:
+            with run_in_transaction(use_existing=True) as runner2:
                 assert runner1.session is runner2.session
                 Group(name="level 3").save()
                 assert 3 == Group.objects.count()

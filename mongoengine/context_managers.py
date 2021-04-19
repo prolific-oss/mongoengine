@@ -71,7 +71,7 @@ class run_in_transaction(contextlib.ContextDecorator, contextlib.ExitStack):
             self.transaction = self.enter_context(self.session.start_transaction())
             sessions.set_local_session(self.db_alias, self.session)
 
-        return self.session
+        return self
 
     def __exit__(self, t, value, traceback):
         """Clear local session and finish transaction and session"""

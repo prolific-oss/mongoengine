@@ -4,10 +4,10 @@ from contextlib import contextmanager
 from pymongo.read_concern import ReadConcern
 from pymongo.write_concern import WriteConcern
 
+from mongoengine import sessions
 from mongoengine.common import _import_class
 from mongoengine.connection import DEFAULT_CONNECTION_NAME, get_connection, get_db
 from mongoengine.pymongo_support import count_documents
-from mongoengine import sessions
 
 __all__ = (
     "run_in_transaction",
@@ -55,15 +55,16 @@ class run_in_transaction(contextlib.ContextDecorator, contextlib.ExitStack):
         The session is returned to be used in low level APIs
         """
         super().__enter__()
-        self.conn = get_connection(self.db_alias) # MongoClient
+        self.conn = get_connection(self.db_alias)  # MongoClient
 
-        self.session = sessions.get_local_session(self.db_alias) # ClientSession or None
+        self.session = sessions.get_local_session(self.db_alias)  # ClientSession/None
         if self.session:
             self.inner_session = True
             if not self.use_existing:
                 raise RuntimeError(
                     "Trying to run_in_transaction while another run_in_transaction is "
-                    "in effect. Try passing use_existing=True.")
+                    "in effect. Try passing use_existing=True."
+                )
             self.transaction = None
         else:
             self.session = self.enter_context(self.conn.start_session())

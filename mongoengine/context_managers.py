@@ -35,7 +35,7 @@ class run_in_transaction(contextlib.ContextDecorator, contextlib.ExitStack):
 
         Group(name='test').save()  # Saves in the default db without transaction
 
-        with run_in_transaction('testdb-1') as session:
+        with run_in_transaction('testdb-1'):
             Group(name='hello testdb!').save()  # Saves in testdb-1 using the provided transaction
     """
 

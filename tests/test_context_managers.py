@@ -132,6 +132,65 @@ class TestContextManagers(unittest.TestCase):
         assert 0 == Group.objects.count()
         assert get_local_session() is None
 
+    def test_run_in_transaction_prevent_inner_session(self):
+        connect("mongoenginetest")
+        register_connection("testdb-1", "mongoenginetest2")
+
+        class Group(Document):
+            name = StringField()
+
+        Group.drop_collection()
+
+        Group(name="level 1").save()
+        assert 1 == Group.objects.count()
+
+        with run_in_transaction():
+            Group(name="level 2").save()
+            assert 2 == Group.objects.count()
+
+            with self.assertRaises(RuntimeError):
+                with run_in_transaction():
+                    pass
+
+            assert get_local_session() is not None
+            assert 2 == Group.objects.count()
+
+        assert 2 == Group.objects.count()
+        assert get_local_session() is None
+
+        Group.drop_collection()
+
+    def test_run_in_transaction_allow_inner_session(self):
+        connect("mongoenginetest")
+        register_connection("testdb-1", "mongoenginetest2")
+
+        class Group(Document):
+            name = StringField()
+
+        Group.drop_collection()
+
+        Group(name="level 1").save()
+        assert 1 == Group.objects.count()
+
+        runner1 = run_in_transaction()
+        with runner1:
+            Group(name="level 2").save()
+            assert 2 == Group.objects.count()
+
+            runner2 = run_in_transaction(use_existing=True)
+            with runner2:
+                assert runner1.session is runner2.session
+                Group(name="level 3").save()
+                assert 3 == Group.objects.count()
+
+            assert get_local_session() is not None
+            assert 3 == Group.objects.count()
+
+        assert 3 == Group.objects.count()
+        assert get_local_session() is None
+
+        Group.drop_collection()
+
     def test_switch_db_context_manager(self):
         connect("mongoenginetest")
         register_connection("testdb-1", "mongoenginetest2")

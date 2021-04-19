@@ -4,10 +4,10 @@ from contextlib import contextmanager
 from pymongo.read_concern import ReadConcern
 from pymongo.write_concern import WriteConcern
 
+from mongoengine import sessions
 from mongoengine.common import _import_class
 from mongoengine.connection import DEFAULT_CONNECTION_NAME, get_connection, get_db
 from mongoengine.pymongo_support import count_documents
-from mongoengine.sessions import clear_local_session, set_local_session
 
 __all__ = (
     "run_in_transaction",
@@ -35,33 +35,49 @@ class run_in_transaction(contextlib.ContextDecorator, contextlib.ExitStack):
 
         Group(name='test').save()  # Saves in the default db without transaction
 
-        with run_in_transaction('testdb-1') as session:
+        with run_in_transaction('testdb-1'):
             Group(name='hello testdb!').save()  # Saves in testdb-1 using the provided transaction
     """
 
-    def __init__(self, db_alias=DEFAULT_CONNECTION_NAME):
+    def __init__(self, db_alias=DEFAULT_CONNECTION_NAME, use_existing=False):
         """Construct the run_in_transaction context manager
 
         :param db_alias: the name of the specific database to use
+        :param use_existing: normally, raise a RuntimeError if another run_in_transaction is active. With this flag, don't start a transaction and just use the 'parent' one.
         """
         super().__init__()
         self.db_alias = db_alias
+        self.use_existing = use_existing
+        self.inner_session = False
 
     def __enter__(self):
         """Get a connection and first start a session and then a transaction, the session is stored in the local.
         The session is returned to be used in low level APIs
         """
         super().__enter__()
-        self.conn = get_connection(self.db_alias)
-        self.session = self.enter_context(self.conn.start_session())
-        self.transaction = self.enter_context(self.session.start_transaction())
-        set_local_session(self.db_alias, self.session)
-        return self.session
+        self.conn = get_connection(self.db_alias)  # MongoClient
+
+        self.session = sessions.get_local_session(self.db_alias)  # ClientSession/None
+        if self.session:
+            self.inner_session = True
+            if not self.use_existing:
+                raise RuntimeError(
+                    "Trying to run_in_transaction while another run_in_transaction is "
+                    "in effect. Try passing use_existing=True."
+                )
+            self.transaction = None
+        else:
+            self.session = self.enter_context(self.conn.start_session())
+            self.transaction = self.enter_context(self.session.start_transaction())
+            sessions.set_local_session(self.db_alias, self.session)
+
+        return self
 
     def __exit__(self, t, value, traceback):
         """Clear local session and finish transaction and session"""
-        clear_local_session(self.db_alias)
-        super().__exit__(t, value, traceback)
+        if not self.inner_session:
+            sessions.clear_local_session(self.db_alias)
+        return super().__exit__(t, value, traceback)
 
 
 class switch_db:

@@ -1186,7 +1186,7 @@ class TestDocumentInstance(MongoDBTestCase):
         class Article(Document):
             title = StringField()
 
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="test"):
             with run_in_transaction():
                 doc = Article(title="title")
                 assert doc.id is None
@@ -1217,14 +1217,14 @@ class TestDocumentInstance(MongoDBTestCase):
         doc.save()
         assert doc.id is not None
 
-        with pytest.raises(CustomError):
+        with pytest.raises(Exception, match="test"):
             with run_in_transaction():
                 doc._created = True
                 doc.title = "new title"
                 doc.save()
                 assert Article.objects(title="new title").count() == 1
                 assert Article.objects(title="title").count() == 0
-                raise CustomError("test")
+                raise Exception("test")
 
         assert Article.objects(title="title").count() == 1
         assert Article.objects(title="new title").count() == 0

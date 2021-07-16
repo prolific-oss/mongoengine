@@ -690,7 +690,7 @@ class TestQueryset(unittest.TestCase):
             item = StringField()
             price = FloatField()
 
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="test"):
             with run_in_transaction():
                 product = Product.objects.create(item="ABC", price=10.99)
                 assert Product.objects.get(id=product.id) == product
@@ -720,7 +720,7 @@ class TestQueryset(unittest.TestCase):
         product = Product.objects.create(item="JAC", price=10.99)
         product = Product.objects.create(item="JAC", price=10.99)
         assert Product.objects(item="JAC").count() == 2
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="test"):
             with run_in_transaction():
                 Product.objects(item="JAC").update(mul__price=1.25)
                 assert Product.objects.get(id=product.id).price == 13.7375

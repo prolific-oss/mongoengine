@@ -1637,6 +1637,22 @@ class TestQueryset(unittest.TestCase):
         self.Person.objects.delete()
         assert self.Person.objects.count() == 0
 
+    def test_delete_run_in_transaction(self):
+        """Ensure that documents are properly deleted from the database."""
+        self.Person(name="User A", age=20).save()
+        self.Person(name="User B", age=30).save()
+        self.Person(name="User C", age=40).save()
+
+        assert self.Person.objects.count() == 3
+
+        with pytest.raises(Exception, match="test"):
+            with run_in_transaction():
+                self.Person.objects(age__lt=30).delete()
+                assert self.Person.objects.count() == 2
+                raise Exception("test")
+
+        assert self.Person.objects.count() == 3
+
     def test_reverse_delete_rule_cascade(self):
         """Ensure cascading deletion of referring documents from the database."""
 

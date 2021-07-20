@@ -1180,6 +1180,55 @@ class TestDocumentInstance(MongoDBTestCase):
             "_id": person.id,
         }
 
+    def test_save_run_in_transaction_rollback_on_exceptions(self):
+        """Ensure that save runs in a transaction"""
+
+        class Article(Document):
+            title = StringField()
+
+        with pytest.raises(Exception, match="test"):
+            with run_in_transaction():
+                doc = Article(title="title")
+                assert doc.id is None
+                doc.save()
+                assert doc.id is not None
+                assert Article.objects(title="title").count() == 1
+
+                doc.title = "new title"
+                doc.save(force_insert=True)
+                assert Article.objects(title="new title").count() == 1
+                raise Exception("test")
+
+        assert Article.objects(title="title").count() == 0
+        assert Article.objects(title="new title").count() == 0
+
+    def test_save_already_created_insert_run_in_transaction_rollback_on_exceptions(
+        self,
+    ):
+        """Ensure that save runs in a transaction"""
+
+        class CustomError(Exception):
+            pass
+
+        class Article(Document):
+            title = StringField()
+
+        doc = Article(title="title")
+        doc.save()
+        assert doc.id is not None
+
+        with pytest.raises(Exception, match="test"):
+            with run_in_transaction():
+                doc._created = True
+                doc.title = "new title"
+                doc.save()
+                assert Article.objects(title="new title").count() == 1
+                assert Article.objects(title="title").count() == 0
+                raise Exception("test")
+
+        assert Article.objects(title="title").count() == 1
+        assert Article.objects(title="new title").count() == 0
+
     def test_save_skip_validation(self):
         class Recipient(Document):
             email = EmailField(required=True)

@@ -106,7 +106,7 @@ class TestDynamicDocument(MongoDBTestCase):
 
         assert 122 == p.misc
 
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="test"):
             with run_in_transaction():
                 p.reload()
                 assert 122 == p.misc

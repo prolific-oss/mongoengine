@@ -8,6 +8,13 @@ Development
 ===========
 - (Fill this out as you fix issues and develop your features).
 
+Changes in 0.23.1 (Prolific
+===========
+- TRU-2836: Make session thread-safe
+- Bugfix: Ensure queryset create, update and delete run in a transaction
+- SCAL-104: Add run_in_transaction  context manager and decorator
+- Skip validation of inc and dec for an IntField with min_value
+
 Changes in 0.23.0
 ===========
 - Bugfix: manually setting SequenceField in DynamicDocument doesn't increment the counter #2471

@@ -8,7 +8,12 @@ Development
 ===========
 - (Fill this out as you fix issues and develop your features).
 
-Changes in 0.23.1 (Prolific
+Changes in 0.23.2 (Prolific)
+===========
+- SCAL-150: Always background as False for `_id` index
+- SCAL-150: Skip lookup for _ref indexes when building index_spec
+
+Changes in 0.23.1 (Prolific)
 ===========
 - TRU-2836: Make session thread-safe
 - Bugfix: Ensure queryset create, update and delete run in a transaction

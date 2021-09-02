@@ -915,7 +915,10 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
                 if "cls" in opts:
                     del opts["cls"]
 
-                collection.create_index(fields, background=background, **opts)
+                if fields == [("_id", 1)]:
+                    collection.create_index(fields, **opts)
+                else:
+                    collection.create_index(fields, background=background, **opts)
 
         # If _cls is being used (for polymorphism), it needs an index,
         # only if another index doesn't begin with _cls

@@ -266,8 +266,6 @@ def get_connection(alias=DEFAULT_CONNECTION_NAME, reconnect=False):
     def _clean_settings(settings_dict):
         irrelevant_fields_set = {
             "name",
-            "username",
-            "password",
             "authentication_source",
             "authentication_mechanism",
         }
@@ -355,14 +353,6 @@ def get_db(alias=DEFAULT_CONNECTION_NAME, reconnect=False):
         auth_kwargs = {"source": conn_settings["authentication_source"]}
         if conn_settings["authentication_mechanism"] is not None:
             auth_kwargs["mechanism"] = conn_settings["authentication_mechanism"]
-        # Authenticate if necessary
-        if conn_settings["username"] and (
-            conn_settings["password"]
-            or conn_settings["authentication_mechanism"] == "MONGODB-X509"
-        ):
-            db.authenticate(
-                conn_settings["username"], conn_settings["password"], **auth_kwargs
-            )
         _dbs[alias] = db
     return _dbs[alias]
 

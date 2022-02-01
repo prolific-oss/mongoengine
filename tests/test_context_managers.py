@@ -336,17 +336,17 @@ class TestContextManagers(unittest.TestCase):
         connect("mongoenginetest")
         db = get_db()
 
-        initial_profiling_level = db.profiling_level()
+        initial_profiling_level = db.command('profile', -1)['was']
 
         try:
             new_level = 1
-            db.set_profiling_level(new_level)
-            assert db.profiling_level() == new_level
+            db.command('profile', new_level)
+            assert db.command('profile', -1)['was'] == new_level
             with query_counter():
-                assert db.profiling_level() == 2
-            assert db.profiling_level() == new_level
+                assert db.command('profile', -1)['was'] == 2
+            assert db.command('profile', -1)['was'] == new_level
         except Exception:
-            db.set_profiling_level(
+            db.command('profile',
                 initial_profiling_level
             )  # Ensures it gets reseted no matter the outcome of the test
             raise

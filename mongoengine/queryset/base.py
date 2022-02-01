@@ -1334,47 +1334,6 @@ class BaseQuerySet:
             final_pipeline, cursor={}, session=self._get_local_session(), **kwargs
         )
 
-    def exec_js(self, code, *fields, **options):
-        """Execute a Javascript function on the server. A list of fields may be
-        provided, which will be translated to their correct names and supplied
-        as the arguments to the function. A few extra variables are added to
-        the function's scope: ``collection``, which is the name of the
-        collection in use; ``query``, which is an object representing the
-        current query; and ``options``, which is an object containing any
-        options specified as keyword arguments.
-
-        As fields in MongoEngine may use different names in the database (set
-        using the :attr:`db_field` keyword argument to a :class:`Field`
-        constructor), a mechanism exists for replacing MongoEngine field names
-        with the database field names in Javascript code. When accessing a
-        field, use square-bracket notation, and prefix the MongoEngine field
-        name with a tilde (~).
-
-        :param code: a string of Javascript code to execute
-        :param fields: fields that you will be using in your function, which
-            will be passed in to your function as arguments
-        :param options: options that you want available to the function
-            (accessed in Javascript through the ``options`` object)
-        """
-        queryset = self.clone()
-
-        code = queryset._sub_js_fields(code)
-
-        fields = [queryset._document._translate_field_name(f) for f in fields]
-        collection = queryset._document._get_collection_name()
-
-        scope = {"collection": collection, "options": options or {}}
-
-        query = queryset._query
-        if queryset._where_clause:
-            query["$where"] = queryset._where_clause
-
-        scope["query"] = query
-        code = Code(code, scope=scope)
-
-        db = queryset._document._get_db()
-        return db.eval(code, *fields)
-
     def where(self, where_clause):
         """Filter ``QuerySet`` results with a ``$where`` clause (a Javascript
         expression). Performs automatic field name substitution like
@@ -1448,26 +1407,6 @@ class BaseQuerySet:
         if result:
             return result[0]["total"]
         return 0
-
-    def item_frequencies(self, field, normalize=False, **_):
-        """Returns a dictionary of all items present in a field across
-        the whole queried set of documents, and their corresponding frequency.
-        This is useful for generating tag clouds, or searching documents.
-
-        .. note::
-
-            Can only do direct simple mappings and cannot map across
-            :class:`~mongoengine.fields.ReferenceField` or
-            :class:`~mongoengine.fields.GenericReferenceField` for more complex
-            counting a manual map reduce call is required.
-
-        If the field is a :class:`~mongoengine.fields.ListField`, the items within
-        each list will be counted individually.
-
-        :param field: the field to use
-        :param normalize: normalize the results so they add to 1.0
-        """
-        return self._item_frequencies_exec_js(field, normalize=normalize)
 
     # Iterator helpers
 
@@ -1624,69 +1563,6 @@ class BaseQuerySet:
     def _get_local_session(self):
         db_alias = self._document._meta.get("db_alias", DEFAULT_CONNECTION_NAME)
         return get_local_session(db_alias)
-
-    def _item_frequencies_exec_js(self, field, normalize=False):
-        """Uses exec_js to execute"""
-        freq_func = """
-            function(path) {
-                var path = path.split('.');
-
-                var total = 0.0;
-                db[collection].find(query).forEach(function(doc) {
-                    var field = doc;
-                    for (p in path) {
-                        if (field)
-                            field = field[path[p]];
-                         else
-                            break;
-                    }
-                    if (field && field.constructor == Array) {
-                       total += field.length;
-                    } else {
-                       total++;
-                    }
-                });
-
-                var frequencies = {};
-                var types = {};
-                var inc = 1.0;
-
-                db[collection].find(query).forEach(function(doc) {
-                    field = doc;
-                    for (p in path) {
-                        if (field)
-                            field = field[path[p]];
-                        else
-                            break;
-                    }
-                    if (field && field.constructor == Array) {
-                        field.forEach(function(item) {
-                            frequencies[item] = inc + (isNaN(frequencies[item]) ? 0: frequencies[item]);
-                        });
-                    } else {
-                        var item = field;
-                        types[item] = item;
-                        frequencies[item] = inc + (isNaN(frequencies[item]) ? 0: frequencies[item]);
-                    }
-                });
-                return [total, frequencies, types];
-            }
-        """
-        total, data, types = self.exec_js(freq_func, field)
-        values = {types.get(k): int(v) for k, v in data.items()}
-
-        if normalize:
-            values = {k: float(v) / total for k, v in values.items()}
-
-        frequencies = {}
-        for k, v in values.items():
-            if isinstance(k, float):
-                if int(k) == k:
-                    k = int(k)
-
-            frequencies[k] = v
-
-        return frequencies
 
     def _fields_to_dbfields(self, fields):
         """Translate fields' paths to their db equivalents."""

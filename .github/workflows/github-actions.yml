@@ -12,10 +12,7 @@ on:
       - 'v[0-9]+\.[0-9]+\.[0-9]+*'
 env:
   MONGODB_4_4: 4.4
-
-  PYMONGO_3_9: 3.9
-  PYMONGO_3_11: 3.11
-
+  PYMONGO_4_0: 4.0.1
   MAIN_PYTHON_VERSION: 3.9
 
 jobs:
@@ -36,16 +33,6 @@ jobs:
     # Test suite run against recent python versions
     # and against a few combination of MongoDB and pymongo
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: true
-      matrix:
-        python-version: [3.6]
-        MONGODB: [$MONGODB_4_4]
-        PYMONGO: [$PYMONGO_3_9]
-        include:
-          - python-version: 3.6
-            MONGODB: $MONGODB_4_4
-            PYMONGO: $PYMONGO_3_11
     steps:
     - uses: actions/checkout@v2
     - name: Set up Python ${{ matrix.python-version }}

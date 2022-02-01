@@ -1334,124 +1334,6 @@ class BaseQuerySet:
             final_pipeline, cursor={}, session=self._get_local_session(), **kwargs
         )
 
-    # JS functionality
-    def map_reduce(
-        self, map_f, reduce_f, output, finalize_f=None, limit=None, scope=None
-    ):
-        """Perform a map/reduce query using the current query spec
-        and ordering. While ``map_reduce`` respects ``QuerySet`` chaining,
-        it must be the last call made, as it does not return a maleable
-        ``QuerySet``.
-
-        See the :meth:`~mongoengine.tests.QuerySetTest.test_map_reduce`
-        and :meth:`~mongoengine.tests.QuerySetTest.test_map_advanced`
-        tests in ``tests.queryset.QuerySetTest`` for usage examples.
-
-        :param map_f: map function, as :class:`~bson.code.Code` or string
-        :param reduce_f: reduce function, as
-                         :class:`~bson.code.Code` or string
-        :param output: output collection name, if set to 'inline' will try to
-           use :class:`~pymongo.collection.Collection.inline_map_reduce`
-           This can also be a dictionary containing output options
-           see: http://docs.mongodb.org/manual/reference/command/mapReduce/#dbcmd.mapReduce
-        :param finalize_f: finalize function, an optional function that
-                           performs any post-reduction processing.
-        :param scope: values to insert into map/reduce global scope. Optional.
-        :param limit: number of objects from current query to provide
-                      to map/reduce method
-
-        Returns an iterator yielding
-        :class:`~mongoengine.document.MapReduceDocument`.
-
-        .. note::
-
-            Map/Reduce changed in server version **>= 1.7.4**. The PyMongo
-            :meth:`~pymongo.collection.Collection.map_reduce` helper requires
-            PyMongo version **>= 1.11**.
-        """
-        queryset = self.clone()
-
-        MapReduceDocument = _import_class("MapReduceDocument")
-
-        map_f_scope = {}
-        if isinstance(map_f, Code):
-            map_f_scope = map_f.scope
-            map_f = str(map_f)
-        map_f = Code(queryset._sub_js_fields(map_f), map_f_scope or None)
-
-        reduce_f_scope = {}
-        if isinstance(reduce_f, Code):
-            reduce_f_scope = reduce_f.scope
-            reduce_f = str(reduce_f)
-        reduce_f_code = queryset._sub_js_fields(reduce_f)
-        reduce_f = Code(reduce_f_code, reduce_f_scope or None)
-
-        mr_args = {"query": queryset._query}
-
-        if finalize_f:
-            finalize_f_scope = {}
-            if isinstance(finalize_f, Code):
-                finalize_f_scope = finalize_f.scope
-                finalize_f = str(finalize_f)
-            finalize_f_code = queryset._sub_js_fields(finalize_f)
-            finalize_f = Code(finalize_f_code, finalize_f_scope or None)
-            mr_args["finalize"] = finalize_f
-
-        if scope:
-            mr_args["scope"] = scope
-
-        if limit:
-            mr_args["limit"] = limit
-
-        if output == "inline" and not queryset._ordering:
-            map_reduce_function = "inline_map_reduce"
-        else:
-            map_reduce_function = "map_reduce"
-
-            if isinstance(output, str):
-                mr_args["out"] = output
-
-            elif isinstance(output, dict):
-                ordered_output = []
-
-                for part in ("replace", "merge", "reduce"):
-                    value = output.get(part)
-                    if value:
-                        ordered_output.append((part, value))
-                        break
-
-                else:
-                    raise OperationError("actionData not specified for output")
-
-                db_alias = output.get("db_alias")
-                remaing_args = ["db", "sharded", "nonAtomic"]
-
-                if db_alias:
-                    ordered_output.append(("db", get_db(db_alias).name))
-                    del remaing_args[0]
-
-                for part in remaing_args:
-                    value = output.get(part)
-                    if value:
-                        ordered_output.append((part, value))
-
-                mr_args["out"] = SON(ordered_output)
-
-        results = getattr(queryset._collection, map_reduce_function)(
-            map_f, reduce_f, **mr_args
-        )
-
-        if map_reduce_function == "map_reduce":
-            results = results.find()
-
-        if queryset._ordering:
-            results = results.sort(queryset._ordering)
-
-        for doc in results:
-            yield MapReduceDocument(
-                queryset._document, queryset._collection, doc["_id"], doc["value"]
-            )
-
     def exec_js(self, code, *fields, **options):
         """Execute a Javascript function on the server. A list of fields may be
         provided, which will be translated to their correct names and supplied
@@ -1567,7 +1449,7 @@ class BaseQuerySet:
             return result[0]["total"]
         return 0
 
-    def item_frequencies(self, field, normalize=False, map_reduce=True):
+    def item_frequencies(self, field, normalize=False, **_):
         """Returns a dictionary of all items present in a field across
         the whole queried set of documents, and their corresponding frequency.
         This is useful for generating tag clouds, or searching documents.
@@ -1584,10 +1466,7 @@ class BaseQuerySet:
 
         :param field: the field to use
         :param normalize: normalize the results so they add to 1.0
-        :param map_reduce: Use map_reduce over exec_js
         """
-        if map_reduce:
-            return self._item_frequencies_map_reduce(field, normalize=normalize)
         return self._item_frequencies_exec_js(field, normalize=normalize)
 
     # Iterator helpers
@@ -1745,56 +1624,6 @@ class BaseQuerySet:
     def _get_local_session(self):
         db_alias = self._document._meta.get("db_alias", DEFAULT_CONNECTION_NAME)
         return get_local_session(db_alias)
-
-    def _item_frequencies_map_reduce(self, field, normalize=False):
-        map_func = """
-            function() {
-                var path = '{{~%(field)s}}'.split('.');
-                var field = this;
-
-                for (p in path) {
-                    if (typeof field != 'undefined')
-                       field = field[path[p]];
-                    else
-                       break;
-                }
-                if (field && field.constructor == Array) {
-                    field.forEach(function(item) {
-                        emit(item, 1);
-                    });
-                } else if (typeof field != 'undefined') {
-                    emit(field, 1);
-                } else {
-                    emit(null, 1);
-                }
-            }
-        """ % {
-            "field": field
-        }
-        reduce_func = """
-            function(key, values) {
-                var total = 0;
-                var valuesSize = values.length;
-                for (var i=0; i < valuesSize; i++) {
-                    total += parseInt(values[i], 10);
-                }
-                return total;
-            }
-        """
-        values = self.map_reduce(map_func, reduce_func, "inline")
-        frequencies = {}
-        for f in values:
-            key = f.key
-            if isinstance(key, float):
-                if int(key) == key:
-                    key = int(key)
-            frequencies[key] = int(f.value)
-
-        if normalize:
-            count = sum(frequencies.values())
-            frequencies = {k: float(v) / count for k, v in frequencies.items()}
-
-        return frequencies
 
     def _item_frequencies_exec_js(self, field, normalize=False):
         """Uses exec_js to execute"""

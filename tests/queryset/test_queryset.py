@@ -2663,363 +2663,6 @@ class TestQueryset(unittest.TestCase):
                 assert op[CMD_QUERY_KEY][QUERY_KEY] == {"age": {"$gte": 18}}
                 assert op[CMD_QUERY_KEY][COMMENT_KEY] == "looking for an adult"
 
-    def test_map_reduce(self):
-        """Ensure map/reduce is both mapping and reducing."""
-
-        class BlogPost(Document):
-            title = StringField()
-            tags = ListField(StringField(), db_field="post-tag-list")
-
-        BlogPost.drop_collection()
-
-        BlogPost(title="Post #1", tags=["music", "film", "print"]).save()
-        BlogPost(title="Post #2", tags=["music", "film"]).save()
-        BlogPost(title="Post #3", tags=["film", "photography"]).save()
-
-        map_f = """
-            function() {
-                this[~tags].forEach(function(tag) {
-                    emit(tag, 1);
-                });
-            }
-        """
-
-        reduce_f = """
-            function(key, values) {
-                var total = 0;
-                for(var i=0; i<values.length; i++) {
-                    total += values[i];
-                }
-                return total;
-            }
-        """
-
-        # run a map/reduce operation spanning all posts
-        results = BlogPost.objects.map_reduce(map_f, reduce_f, "myresults")
-        results = list(results)
-        assert len(results) == 4
-
-        music = list(filter(lambda r: r.key == "music", results))[0]
-        assert music.value == 2
-
-        film = list(filter(lambda r: r.key == "film", results))[0]
-        assert film.value == 3
-
-        BlogPost.drop_collection()
-
-    def test_map_reduce_with_custom_object_ids(self):
-        """Ensure that QuerySet.map_reduce works properly with custom
-        primary keys.
-        """
-
-        class BlogPost(Document):
-            title = StringField(primary_key=True)
-            tags = ListField(StringField())
-
-        BlogPost.drop_collection()
-
-        post1 = BlogPost(title="Post #1", tags=["mongodb", "mongoengine"])
-        post2 = BlogPost(title="Post #2", tags=["django", "mongodb"])
-        post3 = BlogPost(title="Post #3", tags=["hitchcock films"])
-
-        post1.save()
-        post2.save()
-        post3.save()
-
-        assert BlogPost._fields["title"].db_field == "_id"
-        assert BlogPost._meta["id_field"] == "title"
-
-        map_f = """
-            function() {
-                emit(this._id, 1);
-            }
-        """
-
-        # reduce to a list of tag ids and counts
-        reduce_f = """
-            function(key, values) {
-                var total = 0;
-                for(var i=0; i<values.length; i++) {
-                    total += values[i];
-                }
-                return total;
-            }
-        """
-
-        results = BlogPost.objects.order_by("_id").map_reduce(
-            map_f, reduce_f, "myresults2"
-        )
-        results = list(results)
-
-        assert len(results) == 3
-        assert results[0].object.id == post1.id
-        assert results[1].object.id == post2.id
-        assert results[2].object.id == post3.id
-
-        BlogPost.drop_collection()
-
-    def test_map_reduce_custom_output(self):
-        """
-        Test map/reduce custom output
-        """
-
-        class Family(Document):
-            id = IntField(primary_key=True)
-            log = StringField()
-
-        class Person(Document):
-            id = IntField(primary_key=True)
-            name = StringField()
-            age = IntField()
-            family = ReferenceField(Family)
-
-        Family.drop_collection()
-        Person.drop_collection()
-
-        # creating first family
-        f1 = Family(id=1, log="Trav 02 de Julho")
-        f1.save()
-
-        # persons of first family
-        Person(id=1, family=f1, name="Wilson Jr", age=21).save()
-        Person(id=2, family=f1, name="Wilson Father", age=45).save()
-        Person(id=3, family=f1, name="Eliana Costa", age=40).save()
-        Person(id=4, family=f1, name="Tayza Mariana", age=17).save()
-
-        # creating second family
-        f2 = Family(id=2, log="Av prof frasc brunno")
-        f2.save()
-
-        # persons of second family
-        Person(id=5, family=f2, name="Isabella Luanna", age=16).save()
-        Person(id=6, family=f2, name="Sandra Mara", age=36).save()
-        Person(id=7, family=f2, name="Igor Gabriel", age=10).save()
-
-        # creating third family
-        f3 = Family(id=3, log="Av brazil")
-        f3.save()
-
-        # persons of thrird family
-        Person(id=8, family=f3, name="Arthur WA", age=30).save()
-        Person(id=9, family=f3, name="Paula Leonel", age=25).save()
-
-        # executing join map/reduce
-        map_person = """
-            function () {
-                emit(this.family, {
-                     totalAge: this.age,
-                     persons: [{
-                        name: this.name,
-                        age: this.age
-                }]});
-            }
-        """
-
-        map_family = """
-            function () {
-                emit(this._id, {
-                   totalAge: 0,
-                   persons: []
-                });
-            }
-        """
-
-        reduce_f = """
-            function (key, values) {
-                var family = {persons: [], totalAge: 0};
-
-                values.forEach(function(value) {
-                    if (value.persons) {
-                        value.persons.forEach(function (person) {
-                            family.persons.push(person);
-                            family.totalAge += person.age;
-                        });
-                        family.persons.sort((a, b) => (a.age > b.age))
-                    }
-                });
-
-                return family;
-            }
-        """
-        cursor = Family.objects.map_reduce(
-            map_f=map_family,
-            reduce_f=reduce_f,
-            output={"replace": "family_map", "db_alias": "test2"},
-        )
-
-        # start a map/reduce
-        next(cursor)
-
-        results = Person.objects.map_reduce(
-            map_f=map_person,
-            reduce_f=reduce_f,
-            output={"reduce": "family_map", "db_alias": "test2"},
-        )
-
-        results = list(results)
-        collection = get_db("test2").family_map
-
-        assert collection.find_one({"_id": 1}) == {
-            "_id": 1,
-            "value": {
-                "persons": [
-                    {"age": 17, "name": "Tayza Mariana"},
-                    {"age": 21, "name": "Wilson Jr"},
-                    {"age": 40, "name": "Eliana Costa"},
-                    {"age": 45, "name": "Wilson Father"},
-                ],
-                "totalAge": 123,
-            },
-        }
-
-        assert collection.find_one({"_id": 2}) == {
-            "_id": 2,
-            "value": {
-                "persons": [
-                    {"age": 10, "name": "Igor Gabriel"},
-                    {"age": 16, "name": "Isabella Luanna"},
-                    {"age": 36, "name": "Sandra Mara"},
-                ],
-                "totalAge": 62,
-            },
-        }
-
-        assert collection.find_one({"_id": 3}) == {
-            "_id": 3,
-            "value": {
-                "persons": [
-                    {"age": 25, "name": "Paula Leonel"},
-                    {"age": 30, "name": "Arthur WA"},
-                ],
-                "totalAge": 55,
-            },
-        }
-
-    def test_map_reduce_finalize(self):
-        """Ensure that map, reduce, and finalize run and introduce "scope"
-        by simulating "hotness" ranking with Reddit algorithm.
-        """
-        from time import mktime
-
-        class Link(Document):
-            title = StringField(db_field="bpTitle")
-            up_votes = IntField()
-            down_votes = IntField()
-            submitted = DateTimeField(db_field="sTime")
-
-        Link.drop_collection()
-
-        now = datetime.datetime.utcnow()
-
-        # Note: Test data taken from a custom Reddit homepage on
-        # Fri, 12 Feb 2010 14:36:00 -0600. Link ordering should
-        # reflect order of insertion below, but is not influenced
-        # by insertion order.
-        Link(
-            title="Google Buzz auto-followed a woman's abusive ex ...",
-            up_votes=1079,
-            down_votes=553,
-            submitted=now - datetime.timedelta(hours=4),
-        ).save()
-        Link(
-            title="We did it! Barbie is a computer engineer.",
-            up_votes=481,
-            down_votes=124,
-            submitted=now - datetime.timedelta(hours=2),
-        ).save()
-        Link(
-            title="This Is A Mosquito Getting Killed By A Laser",
-            up_votes=1446,
-            down_votes=530,
-            submitted=now - datetime.timedelta(hours=13),
-        ).save()
-        Link(
-            title="Arabic flashcards land physics student in jail.",
-            up_votes=215,
-            down_votes=105,
-            submitted=now - datetime.timedelta(hours=6),
-        ).save()
-        Link(
-            title="The Burger Lab: Presenting, the Flood Burger",
-            up_votes=48,
-            down_votes=17,
-            submitted=now - datetime.timedelta(hours=5),
-        ).save()
-        Link(
-            title="How to see polarization with the naked eye",
-            up_votes=74,
-            down_votes=13,
-            submitted=now - datetime.timedelta(hours=10),
-        ).save()
-
-        map_f = """
-            function() {
-                emit(this[~id], {up_delta: this[~up_votes] - this[~down_votes],
-                                sub_date: this[~submitted].getTime() / 1000})
-            }
-        """
-
-        reduce_f = """
-            function(key, values) {
-                data = values[0];
-
-                x = data.up_delta;
-
-                // calculate time diff between reddit epoch and submission
-                sec_since_epoch = data.sub_date - reddit_epoch;
-
-                // calculate 'Y'
-                if(x > 0) {
-                    y = 1;
-                } else if (x = 0) {
-                    y = 0;
-                } else {
-                    y = -1;
-                }
-
-                // calculate 'Z', the maximal value
-                if(Math.abs(x) >= 1) {
-                    z = Math.abs(x);
-                } else {
-                    z = 1;
-                }
-
-                return {x: x, y: y, z: z, t_s: sec_since_epoch};
-            }
-        """
-
-        finalize_f = """
-            function(key, value) {
-                // f(sec_since_epoch,y,z) =
-                //                    log10(z) + ((y*sec_since_epoch) / 45000)
-                z_10 = Math.log(value.z) / Math.log(10);
-                weight = z_10 + ((value.y * value.t_s) / 45000);
-                return weight;
-            }
-        """
-
-        # provide the reddit epoch (used for ranking) as a variable available
-        # to all phases of the map/reduce operation: map, reduce, and finalize.
-        reddit_epoch = mktime(datetime.datetime(2005, 12, 8, 7, 46, 43).timetuple())
-        scope = {"reddit_epoch": reddit_epoch}
-
-        # run a map/reduce operation across all links. ordering is set
-        # to "-value", which orders the "weight" value returned from
-        # "finalize_f" in descending order.
-        results = Link.objects.order_by("-value")
-        results = results.map_reduce(
-            map_f, reduce_f, "myresults", finalize_f=finalize_f, scope=scope
-        )
-        results = list(results)
-
-        # assert troublesome Buzz article is ranked 1st
-        assert results[0].object.title.startswith("Google Buzz")
-
-        # assert laser vision is ranked last
-        assert results[-1].object.title.startswith("How to see")
-
-        Link.drop_collection()
-
     def test_item_frequencies(self):
         """Ensure that item frequencies are properly generated from lists."""
 
@@ -3042,9 +2685,7 @@ class TestQueryset(unittest.TestCase):
             assert f["film"] == 1
 
         exec_js = BlogPost.objects.item_frequencies("tags")
-        map_reduce = BlogPost.objects.item_frequencies("tags", map_reduce=True)
         test_assertions(exec_js)
-        test_assertions(map_reduce)
 
         # Ensure query is taken into account
         def test_assertions(f):
@@ -3055,11 +2696,7 @@ class TestQueryset(unittest.TestCase):
             assert f["watch"] == 1
 
         exec_js = BlogPost.objects(hits__gt=1).item_frequencies("tags")
-        map_reduce = BlogPost.objects(hits__gt=1).item_frequencies(
-            "tags", map_reduce=True
-        )
         test_assertions(exec_js)
-        test_assertions(map_reduce)
 
         # Check that normalization works
         def test_assertions(f):
@@ -3069,11 +2706,7 @@ class TestQueryset(unittest.TestCase):
             assert round(abs(f["film"] - 1.0 / 8.0), 7) == 0
 
         exec_js = BlogPost.objects.item_frequencies("tags", normalize=True)
-        map_reduce = BlogPost.objects.item_frequencies(
-            "tags", normalize=True, map_reduce=True
-        )
         test_assertions(exec_js)
-        test_assertions(map_reduce)
 
         # Check item_frequencies works for non-list fields
         def test_assertions(f):
@@ -3082,9 +2715,7 @@ class TestQueryset(unittest.TestCase):
             assert f[2] == 2
 
         exec_js = BlogPost.objects.item_frequencies("hits")
-        map_reduce = BlogPost.objects.item_frequencies("hits", map_reduce=True)
         test_assertions(exec_js)
-        test_assertions(map_reduce)
 
         BlogPost.drop_collection()
 
@@ -3119,9 +2750,7 @@ class TestQueryset(unittest.TestCase):
             assert f["62-3332-1656"] == 1
 
         exec_js = Person.objects.item_frequencies("phone.number")
-        map_reduce = Person.objects.item_frequencies("phone.number", map_reduce=True)
         test_assertions(exec_js)
-        test_assertions(map_reduce)
 
         # Ensure query is taken into account
         def test_assertions(f):
@@ -3132,11 +2761,7 @@ class TestQueryset(unittest.TestCase):
         exec_js = Person.objects(phone__number="62-3331-1656").item_frequencies(
             "phone.number"
         )
-        map_reduce = Person.objects(phone__number="62-3331-1656").item_frequencies(
-            "phone.number", map_reduce=True
-        )
         test_assertions(exec_js)
-        test_assertions(map_reduce)
 
         # Check that normalization works
         def test_assertions(f):
@@ -3144,11 +2769,7 @@ class TestQueryset(unittest.TestCase):
             assert f["62-3332-1656"] == 1.0 / 3.0
 
         exec_js = Person.objects.item_frequencies("phone.number", normalize=True)
-        map_reduce = Person.objects.item_frequencies(
-            "phone.number", normalize=True, map_reduce=True
-        )
         test_assertions(exec_js)
-        test_assertions(map_reduce)
 
     def test_item_frequencies_null_values(self):
         class Person(Document):
@@ -3163,11 +2784,6 @@ class TestQueryset(unittest.TestCase):
         freq = Person.objects.item_frequencies("city")
         assert freq == {"CRB": 1.0, None: 1.0}
         freq = Person.objects.item_frequencies("city", normalize=True)
-        assert freq == {"CRB": 0.5, None: 0.5}
-
-        freq = Person.objects.item_frequencies("city", map_reduce=True)
-        assert freq == {"CRB": 1.0, None: 1.0}
-        freq = Person.objects.item_frequencies("city", normalize=True, map_reduce=True)
         assert freq == {"CRB": 0.5, None: 0.5}
 
     @requires_mongodb_lt_42
@@ -3193,10 +2809,7 @@ class TestQueryset(unittest.TestCase):
         p.extra = Extra(tag="friend")
         p.save()
 
-        ot = Person.objects.item_frequencies("extra.tag", map_reduce=False)
-        assert ot == {None: 1.0, "friend": 1.0}
-
-        ot = Person.objects.item_frequencies("extra.tag", map_reduce=True)
+        ot = Person.objects.item_frequencies("extra.tag")
         assert ot == {None: 1.0, "friend": 1.0}
 
     @requires_mongodb_lt_42
@@ -3209,9 +2822,7 @@ class TestQueryset(unittest.TestCase):
         t.val = 0
         t.save()
 
-        ot = Test.objects.item_frequencies("val", map_reduce=True)
-        assert ot == {0: 1}
-        ot = Test.objects.item_frequencies("val", map_reduce=False)
+        ot = Test.objects.item_frequencies("val")
         assert ot == {0: 1}
 
     @requires_mongodb_lt_42
@@ -3224,9 +2835,7 @@ class TestQueryset(unittest.TestCase):
         t.val = False
         t.save()
 
-        ot = Test.objects.item_frequencies("val", map_reduce=True)
-        assert ot == {False: 1}
-        ot = Test.objects.item_frequencies("val", map_reduce=False)
+        ot = Test.objects.item_frequencies("val")
         assert ot == {False: 1}
 
     @requires_mongodb_lt_42
@@ -3242,10 +2851,7 @@ class TestQueryset(unittest.TestCase):
         for _ in range(20):
             Test(val=2).save()
 
-        freqs = Test.objects.item_frequencies("val", map_reduce=False, normalize=True)
-        assert freqs == {1: 50.0 / 70, 2: 20.0 / 70}
-
-        freqs = Test.objects.item_frequencies("val", map_reduce=True, normalize=True)
+        freqs = Test.objects.item_frequencies("val", normalize=True)
         assert freqs == {1: 50.0 / 70, 2: 20.0 / 70}
 
     def test_average(self):

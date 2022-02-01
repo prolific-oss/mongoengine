@@ -891,7 +891,10 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
         collection = cls._get_collection()
         # 746: when connection is via mongos, the read preference is not necessarily an indication that
         # this code runs on a secondary
-        if collection.is_mongos is not None and collection.read_preference != ReadPreference.PRIMARY:
+        if (
+            collection.is_mongos is not None
+            and collection.read_preference != ReadPreference.PRIMARY
+        ):
             return
 
         # determine if an index which we are creating includes

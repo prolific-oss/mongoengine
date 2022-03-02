@@ -1140,8 +1140,8 @@ class BaseDocument:
                 # If previous field was a reference, throw an error (we
                 # cannot look up fields that are on references).
                 if isinstance(field, (ReferenceField, GenericReferenceField)):
-                    if len(parts) == 3 and parts[-2:] == ['_ref', '$id']:
-                        new_field = field
+                    if isinstance(field, (GenericReferenceField)) and len(parts) == 3 and parts[-2:] == ['_ref', '$id']:
+                        return [field] + parts[-2:]
                     else:
                         raise LookUpError(
                             "Cannot perform join in mongoDB: %s" % "__".join(parts)

@@ -1140,14 +1140,17 @@ class BaseDocument:
                 # If previous field was a reference, throw an error (we
                 # cannot look up fields that are on references).
                 if isinstance(field, (ReferenceField, GenericReferenceField)):
-                    raise LookUpError(
-                        "Cannot perform join in mongoDB: %s" % "__".join(parts)
-                    )
+                    if len(parts) == 3 and parts[-2:] == ['_ref', '$id']:
+                        new_field = field
+                    else:
+                        raise LookUpError(
+                            "Cannot perform join in mongoDB: %s" % "__".join(parts)
+                        )
 
                 # If the parent field has a "field" attribute which has a
                 # lookup_member method, call it to find the field
                 # corresponding to this iteration.
-                if hasattr(getattr(field, "field", None), "lookup_member"):
+                elif hasattr(getattr(field, "field", None), "lookup_member"):
                     new_field = field.field.lookup_member(field_name)
 
                 # If the parent field is a DynamicField or if it's part of

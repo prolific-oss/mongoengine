@@ -1,6 +1,7 @@
 import re
 
 from bson.dbref import DBRef
+from ddtrace import tracer
 import pymongo
 from pymongo.read_preferences import ReadPreference
 
@@ -265,6 +266,12 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
             collection_name, session=cls._get_local_session(), **opts
         )
 
+    @tracer.wrap(
+        name="mongoengine.to_mongo_document",
+        service="mongoengine",
+        resource="to_mongo_document",
+        span_type="function",
+    )
     def to_mongo(self, *args, **kwargs):
         data = super().to_mongo(*args, **kwargs)
 
@@ -323,6 +330,12 @@ class Document(BaseDocument, metaclass=TopLevelDocumentMetaclass):
 
         return True
 
+    @tracer.wrap(
+        name="mongoengine.save_document",
+        service="mongoengine",
+        resource="save_document",
+        span_type="function",
+    )
     def save(
         self,
         force_insert=False,

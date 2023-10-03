@@ -386,9 +386,9 @@ class BaseDocument:
         return data
 
     @tracer.wrap(
-        name="mongoengine.validate",
+        name="mongoengine.validate_document",
         service="mongoengine",
-        resource="validate",
+        resource="validate_document",
         span_type="function",
     )
     def validate(self, clean=True):
@@ -756,6 +756,12 @@ class BaseDocument:
         """
         return cls._meta.get("collection", None)
 
+    @tracer.wrap(
+        name="mongoengine.from_mongo_to_model",
+        service="mongoengine",
+        resource="from_mongo_to_model",
+        span_type="function",
+    )
     @classmethod
     def _from_son(cls, son, _auto_dereference=True, created=False):
         """Create an instance of a Document (subclass) from a PyMongo SON (dict)"""

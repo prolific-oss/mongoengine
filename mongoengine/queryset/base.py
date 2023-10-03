@@ -224,6 +224,12 @@ class BaseQuerySet:
         """Returns a copy of the current QuerySet."""
         return self.__call__()
 
+    @tracer.wrap(
+        name="mongoengine.filter_queryset",
+        service="mongoengine",
+        resource="filter_queryset",
+        span_type="function",
+    )
     def filter(self, *q_objs, **query):
         """An alias of :meth:`~mongoengine.queryset.QuerySet.__call__`"""
         return self.__call__(*q_objs, **query)
@@ -789,6 +795,12 @@ class BaseQuerySet:
 
         return self._clone_into(self.__class__(self._document, collection))
 
+    @tracer.wrap(
+        name="mongoengine.clone_queryset",
+        service="mongoengine",
+        resource="clone_queryset",
+        span_type="function",
+    )
     def clone(self):
         """Create a copy of the current queryset."""
         return self._clone_into(self.__class__(self._document, self._collection_obj))
@@ -946,6 +958,12 @@ class BaseQuerySet:
 
         return queryset
 
+    @tracer.wrap(
+        name="mongoengine.distinct_queryset",
+        service="mongoengine",
+        resource="distinct_queryset",
+        span_type="function",
+    )
     def distinct(self, field):
         """Return a list of distinct values for a given field.
 
@@ -1125,7 +1143,6 @@ class BaseQuerySet:
         new_ordering = queryset._get_order_by(keys)
 
         if queryset._cursor_obj:
-
             # If a cursor object has already been created, apply the sort to it
             if new_ordering:
                 queryset._cursor_obj.sort(new_ordering)
@@ -1257,6 +1274,12 @@ class BaseQuerySet:
         """An alias for scalar"""
         return self.scalar(*fields)
 
+    @tracer.wrap(
+        name="mongoengine.as_pymongo_queryset",
+        service="mongoengine",
+        resource="as_pymongo_queryset",
+        span_type="function",
+    )
     def as_pymongo(self):
         """Instead of returning Document instances, return raw values from
         pymongo.

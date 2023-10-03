@@ -56,6 +56,12 @@ class BaseDocument:
     _dynamic_lock = True
     STRICT = False
 
+    @tracer.wrap(
+        name="mongoengine.init_document",
+        service="mongoengine",
+        resource="init_document",
+        span_type="function",
+    )
     def __init__(self, *args, **values):
         """
         Initialise a document or an embedded document.
@@ -155,7 +161,6 @@ class BaseDocument:
     def __setattr__(self, name, value):
         # Handle dynamic data only if an initialised dynamic document
         if self._dynamic and not self._dynamic_lock:
-
             if name not in self._fields_ordered and not name.startswith("_"):
                 DynamicField = _import_class("DynamicField")
                 field = DynamicField(db_field=name, null=True)
@@ -378,6 +383,12 @@ class BaseDocument:
 
         return data
 
+    @tracer.wrap(
+        name="mongoengine.validate",
+        service="mongoengine",
+        resource="validate",
+        span_type="function",
+    )
     def validate(self, clean=True):
         """Ensure that all fields' values are valid and that required fields
         are present.

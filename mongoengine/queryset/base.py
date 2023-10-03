@@ -4,6 +4,7 @@ import re
 import warnings
 
 from collections.abc import Mapping
+from ddtrace import tracer
 
 from bson import SON, json_util
 from bson.code import Code

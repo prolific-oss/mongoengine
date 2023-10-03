@@ -6,6 +6,8 @@ from functools import partial
 from bson import DBRef, ObjectId, SON, json_util
 import pymongo
 
+
+from ddtrace import tracer
 from mongoengine import signals
 from mongoengine.base.common import get_document
 from mongoengine.base.datastructures import (

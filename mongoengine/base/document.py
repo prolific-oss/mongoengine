@@ -756,76 +756,78 @@ class BaseDocument:
         """
         return cls._meta.get("collection", None)
 
-    @tracer.wrap(
-        name="mongoengine.from_mongo_to_model",
-        service="mongoengine",
-        resource="from_mongo_to_model",
-        span_type="function",
-    )
     @classmethod
     def _from_son(cls, son, _auto_dereference=True, created=False):
         """Create an instance of a Document (subclass) from a PyMongo SON (dict)"""
-        if son and not isinstance(son, dict):
-            raise ValueError(
-                "The source SON object needs to be of type 'dict' but a '%s' was found"
-                % type(son)
-            )
+        with tracer.trace(
+            name="mongoengine.from_mongo_to_model",
+            service="mongoengine",
+            resource="from_mongo_to_model",
+            span_type="function",
+        ):
+            if son and not isinstance(son, dict):
+                raise ValueError(
+                    "The source SON object needs to be of type 'dict' but a '%s' was found"
+                    % type(son)
+                )
 
-        # Get the class name from the document, falling back to the given
-        # class if unavailable
-        class_name = son.get("_cls", cls._class_name)
+            # Get the class name from the document, falling back to the given
+            # class if unavailable
+            class_name = son.get("_cls", cls._class_name)
 
-        # Convert SON to a data dict, making sure each key is a string and
-        # corresponds to the right db field.
-        # This is needed as _from_son is currently called both from BaseDocument.__init__
-        # and from EmbeddedDocumentField.to_python
-        data = {}
-        for key, value in son.items():
-            key = str(key)
-            key = cls._db_field_map.get(key, key)
-            data[key] = value
+            # Convert SON to a data dict, making sure each key is a string and
+            # corresponds to the right db field.
+            # This is needed as _from_son is currently called both from BaseDocument.__init__
+            # and from EmbeddedDocumentField.to_python
+            data = {}
+            for key, value in son.items():
+                key = str(key)
+                key = cls._db_field_map.get(key, key)
+                data[key] = value
 
-        # Return correct subclass for document type
-        if class_name != cls._class_name:
-            cls = get_document(class_name)
+            # Return correct subclass for document type
+            if class_name != cls._class_name:
+                cls = get_document(class_name)
 
-        errors_dict = {}
+            errors_dict = {}
 
-        fields = cls._fields
-        if not _auto_dereference:
-            fields = copy.deepcopy(fields)
+            fields = cls._fields
+            if not _auto_dereference:
+                fields = copy.deepcopy(fields)
 
-        for field_name, field in fields.items():
-            field._auto_dereference = _auto_dereference
-            if field.db_field in data:
-                value = data[field.db_field]
-                try:
-                    data[field_name] = (
-                        value if value is None else field.to_python(value)
-                    )
-                    if field_name != field.db_field:
-                        del data[field.db_field]
-                except (AttributeError, ValueError) as e:
-                    errors_dict[field_name] = e
+            for field_name, field in fields.items():
+                field._auto_dereference = _auto_dereference
+                if field.db_field in data:
+                    value = data[field.db_field]
+                    try:
+                        data[field_name] = (
+                            value if value is None else field.to_python(value)
+                        )
+                        if field_name != field.db_field:
+                            del data[field.db_field]
+                    except (AttributeError, ValueError) as e:
+                        errors_dict[field_name] = e
 
-        if errors_dict:
-            errors = "\n".join([f"Field '{k}' - {v}" for k, v in errors_dict.items()])
-            msg = "Invalid data to create a `{}` instance.\n{}".format(
-                cls._class_name,
-                errors,
-            )
-            raise InvalidDocumentError(msg)
+            if errors_dict:
+                errors = "\n".join(
+                    [f"Field '{k}' - {v}" for k, v in errors_dict.items()]
+                )
+                msg = "Invalid data to create a `{}` instance.\n{}".format(
+                    cls._class_name,
+                    errors,
+                )
+                raise InvalidDocumentError(msg)
 
-        # In STRICT documents, remove any keys that aren't in cls._fields
-        if cls.STRICT:
-            data = {k: v for k, v in data.items() if k in cls._fields}
+            # In STRICT documents, remove any keys that aren't in cls._fields
+            if cls.STRICT:
+                data = {k: v for k, v in data.items() if k in cls._fields}
 
-        obj = cls(__auto_convert=False, _created=created, **data)
-        obj._changed_fields = []
-        if not _auto_dereference:
-            obj._fields = fields
+            obj = cls(__auto_convert=False, _created=created, **data)
+            obj._changed_fields = []
+            if not _auto_dereference:
+                obj._fields = fields
 
-        return obj
+            return obj
 
     @classmethod
     def _build_index_specs(cls, meta_indexes):

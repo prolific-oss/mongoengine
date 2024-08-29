@@ -1,3 +1,5 @@
+This repo has been superseded by https://github.com/prolific-oss/prolific-mongoengine.
+
 ===========
 MongoEngine
 ===========
